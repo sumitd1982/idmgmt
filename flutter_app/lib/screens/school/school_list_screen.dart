@@ -99,22 +99,14 @@ class SchoolItem {
 // ── Providers ─────────────────────────────────────────────────
 final _schoolsProvider = FutureProvider.family<List<SchoolItem>, String>(
     (ref, search) async {
-  try {
-    final data = await ApiService().get('/schools',
-        params: search.isNotEmpty ? {'search': search} : null);
-    final list = data['schools'] as List<dynamic>? ?? [];
-    return list
-        .map((e) => SchoolItem.fromJson(e as Map<String, dynamic>))
-        .toList();
-  } catch (_) {
-    return SchoolItem.mockList()
-        .where((s) =>
-            search.isEmpty ||
-            s.name.toLowerCase().contains(search.toLowerCase()) ||
-            s.code.toLowerCase().contains(search.toLowerCase()))
-        .toList();
-  }
+  final data = await ApiService().get('/schools',
+      params: search.isNotEmpty ? {'search': search} : null);
+  final list = data['data'] as List<dynamic>? ?? [];
+  return list
+      .map((e) => SchoolItem.fromJson(e as Map<String, dynamic>))
+      .toList();
 });
+
 
 final _schoolSearchProvider = StateProvider<String>((_) => '');
 

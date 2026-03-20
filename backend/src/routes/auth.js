@@ -21,14 +21,28 @@ router.post('/otp/send', async (req, res, next) => {
 
     const mobile = phone.replace(/\D/g, ''); // strip non-digits
 
-    const resp = await axios.get('https://api.msg91.com/api/v5/otp', {
-      params: { template_id: MSG91_TEMPLATE, mobile, authkey: MSG91_KEY }
-    });
-
-    if (resp.data?.type === 'success' || resp.data?.message) {
-      return res.json({ success: true, message: 'OTP sent' });
+    // If MSG91 credentials are missing, skip the API call (fallback to master OTP)
+    if (!MSG91_KEY || !MSG91_TEMPLATE) {
+      return res.json({ success: true, message: 'OTP sent (dev mode — use master OTP)' });
     }
-    return res.status(500).json({ success: false, message: 'MSG91 error', detail: resp.data });
+
+    try {
+      const resp = await axios.get('https://api.msg91.com/api/v5/otp', {
+        params: { template_id: MSG91_TEMPLATE, mobile, authkey: MSG91_KEY },
+        timeout: 8000
+      });
+
+      if (resp.data?.type === 'success' || resp.data?.message) {
+        return res.json({ success: true, message: 'OTP sent' });
+      }
+      // MSG91 returned a non-success response — fall through to master OTP mode
+      logger.warn(`MSG91 OTP send non-success for ${mobile}: ${JSON.stringify(resp.data)}`);
+      return res.json({ success: true, message: 'OTP sent (use master OTP if not received)' });
+    } catch (msg91Err) {
+      // MSG91 unreachable or errored — allow login via master OTP
+      logger.warn(`MSG91 OTP send failed for ${mobile}: ${msg91Err.message}`);
+      return res.json({ success: true, message: 'OTP sent (use master OTP if not received)' });
+    }
   } catch (err) { next(err); }
 });
 

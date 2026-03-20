@@ -1,6 +1,7 @@
 // ============================================================
 // School Create / Edit Form
 // ============================================================
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -59,6 +60,9 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
   // Media
   Uint8List? _logoBytes;
   Uint8List? _bannerBytes;
+  
+  // Settings
+  bool _isMessagingEnabled = true;
 
   bool _saving = false;
 
@@ -94,6 +98,15 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
       _districtCtrl.text    = '';
       _stateCtrl.text       = data['state']            as String? ?? '';
       _pinCtrl.text         = data['zip_code']         as String? ?? '';
+
+      bool messagingEnabled = true;
+      if (data['settings'] != null) {
+         try {
+           final settings = data['settings'] is String ? jsonDecode(data['settings']) : data['settings'];
+           messagingEnabled = settings['is_messaging_enabled'] ?? true;
+         } catch(_) {}
+      }
+      _isMessagingEnabled = messagingEnabled;
     });
   }
 
@@ -155,6 +168,7 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
         'state':            _stateCtrl.text.trim(),
         'country':          'India',
         'zip_code':         _pinCtrl.text.trim(),
+        'settings':         {'is_messaging_enabled': _isMessagingEnabled},
       };
       if (widget.schoolId != null) {
         await ApiService().put('/schools/${widget.schoolId}', body: body);
@@ -207,7 +221,9 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
               regNoCtrl:      _regNoCtrl,
               affiliationCtrl: _affiliationCtrl,
               schoolType:     _schoolType,
+              isMessagingEnabled: _isMessagingEnabled,
               onTypeChanged:  (v) => setState(() => _schoolType = v),
+              onMessagingToggle: (v) => setState(() => _isMessagingEnabled = v),
             ),
             _ContactTab(
               phoneCtrl:     _phoneCtrl,
@@ -248,7 +264,9 @@ class _BasicInfoTab extends StatelessWidget {
   final TextEditingController regNoCtrl;
   final TextEditingController affiliationCtrl;
   final String? schoolType;
+  final bool isMessagingEnabled;
   final ValueChanged<String?> onTypeChanged;
+  final ValueChanged<bool> onMessagingToggle;
 
   const _BasicInfoTab({
     required this.nameCtrl,
@@ -256,7 +274,9 @@ class _BasicInfoTab extends StatelessWidget {
     required this.regNoCtrl,
     required this.affiliationCtrl,
     required this.schoolType,
+    required this.isMessagingEnabled,
     required this.onTypeChanged,
+    required this.onMessagingToggle,
   });
 
   @override
@@ -304,6 +324,23 @@ class _BasicInfoTab extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 24),
+          _SectionTitle('School Preferences'),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: AppTheme.grey300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: SwitchListTile(
+              title: Text('Enable Parent-Teacher Messaging', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500)),
+              subtitle: Text('Allows parents to initiate structured queries within working hours.', style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600)),
+              value: isMessagingEnabled,
+              onChanged: onMessagingToggle,
+              activeColor: AppTheme.primary,
+            ),
           ),
         ],
       ),

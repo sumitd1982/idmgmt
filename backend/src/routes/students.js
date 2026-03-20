@@ -33,6 +33,12 @@ router.get('/', authenticate, async (req, res, next) => {
 
     // Scope to employee's school
     const effectiveSchoolId = school_id || req.employee?.school_id;
+
+    // Non-super_admin with no school context sees nothing
+    if (req.user.role !== 'super_admin' && !effectiveSchoolId) {
+      return res.json({ success: true, data: [], meta: { total: 0, page: +page, limit: +limit } });
+    }
+
     if (effectiveSchoolId) { where.push('s.school_id = ?'); params.push(effectiveSchoolId); }
     if (branch_id)    { where.push('s.branch_id = ?');  params.push(branch_id); }
     if (class_name)   { where.push('s.class_name = ?'); params.push(class_name); }
@@ -125,6 +131,13 @@ router.get('/:id', authenticate, async (req, res, next) => {
     );
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
 
+    // Non-super_admin can only view students in their own school
+    if (req.user.role !== 'super_admin') {
+      if (!req.employee || req.employee.school_id !== student.school_id) {
+        return res.status(403).json({ success: false, message: 'Not authorized to view this student' });
+      }
+    }
+
     const guardians = await query('SELECT * FROM guardians WHERE student_id = ?', [req.params.id]);
     res.json({ success: true, data: { ...student, guardians } });
   } catch (err) { next(err); }
@@ -188,6 +201,13 @@ router.post('/', authenticate, async (req, res, next) => {
 // ── PUT /students/:id ─────────────────────────────────────────
 router.put('/:id', authenticate, async (req, res, next) => {
   try {
+    // Non-super_admin can only edit students in their own school
+    if (req.user.role !== 'super_admin') {
+      const [existing] = await query('SELECT school_id FROM students WHERE id = ?', [req.params.id]);
+      if (!existing || !req.employee || req.employee.school_id !== existing.school_id) {
+        return res.status(403).json({ success: false, message: 'Not authorized to edit this student' });
+      }
+    }
     const allowed = ['roll_number','class_name','section','first_name','last_name','middle_name',
       'date_of_birth','gender','blood_group','nationality','religion','category','aadhaar_no',
       'photo_url','address_line1','address_line2','city','state','country','zip_code',
@@ -382,6 +402,13 @@ router.get('/bulk-template/download', authenticate, async (req, res, next) => {
 // ── PATCH /students/:id/status ────────────────────────────────
 router.patch('/:id/status', authenticate, async (req, res, next) => {
   try {
+    // Non-super_admin can only update status for students in their own school
+    if (req.user.role !== 'super_admin') {
+      const [existing] = await query('SELECT school_id FROM students WHERE id = ?', [req.params.id]);
+      if (!existing || !req.employee || req.employee.school_id !== existing.school_id) {
+        return res.status(403).json({ success: false, message: 'Not authorized to update this student' });
+      }
+    }
     const { status_color, review_status } = req.body;
     await query(
       'UPDATE students SET status_color=?, review_status=? WHERE id=?',

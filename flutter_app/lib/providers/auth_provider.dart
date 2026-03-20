@@ -12,10 +12,25 @@ final authStateProvider = StreamProvider<User?>((ref) {
 });
 
 // App-level user profile (from backend)
+// Supports BOTH Google (Firebase) and phone OTP (stored JWT) login paths
 final appUserProvider = FutureProvider.autoDispose<AppUser?>((ref) async {
-  final user = await ref.watch(authStateProvider.future);
-  if (user == null) return null;
-  return ref.read(authServiceProvider).getCurrentUser();
+  final authService = ref.read(authServiceProvider);
+
+  // 1. Check stored JWT first (phone OTP login — no Firebase session)
+  final storedToken = await authService.getStoredToken();
+  if (storedToken != null) {
+    try {
+      final user = await authService.getCurrentUser();
+      if (user != null) return user;
+    } catch (_) {
+      // Token expired/invalid — fall through to Firebase check
+    }
+  }
+
+  // 2. Fall back to Firebase auth state (Google login)
+  final firebaseUser = await ref.watch(authStateProvider.future);
+  if (firebaseUser == null) return null;
+  return authService.getCurrentUser();
 });
 
 final authServiceProvider = Provider<AuthService>((ref) => AuthService());
@@ -67,6 +82,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<AppUser?>> {
       state = AsyncValue.data(user);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
+      rethrow;
     }
   }
 
@@ -77,6 +93,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<AppUser?>> {
       state = AsyncValue.data(user);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
+      rethrow;
     }
   }
 

@@ -27,10 +27,12 @@ class EmployeeRecord {
   final String? branchName;
   final String? schoolName;
   final String? managerName;
+  final String? reportsToEmpId;
   final bool canApprove;
   final bool canUploadBulk;
   final bool isActive;
   final bool isHidden;
+  final List<String> extraRoles;
 
   const EmployeeRecord({
     required this.id,
@@ -45,10 +47,12 @@ class EmployeeRecord {
     this.branchName,
     this.schoolName,
     this.managerName,
+    this.reportsToEmpId,
     required this.canApprove,
     required this.canUploadBulk,
     required this.isActive,
     this.isHidden = false,
+    this.extraRoles = const [],
   });
 
   String get fullName => '$firstName $lastName';
@@ -66,10 +70,12 @@ class EmployeeRecord {
         branchName:    j['branch_name']    as String?,
         schoolName:    j['school_name']    as String?,
         managerName:   j['manager_name']   as String?,
+        reportsToEmpId:j['reports_to_emp_id'] as String?,
         canApprove:    (j['can_approve']   as int?) == 1,
         canUploadBulk: (j['can_upload_bulk'] as int?) == 1,
         isActive:      (j['is_active']     as int?) != 0,
         isHidden:      (j['is_hidden']     as int?) == 1,
+        extraRoles:    (j['extra_roles'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
       );
 
   static List<EmployeeRecord> mockList() => [
@@ -106,6 +112,17 @@ final _employeesProvider = FutureProvider.family<List<EmployeeRecord>, ({bool in
   } catch (_) {
     return EmployeeRecord.mockList();
   }
+});
+
+// Fetch org roles for the assignment form
+final _orgRolesDropdownProvider = FutureProvider.family<List<Map<String, dynamic>>, String?>((ref, schoolId) async {
+  try {
+    final user = ref.read(authNotifierProvider).value;
+    final sid = schoolId ?? user?.employee?.schoolId;
+    if (sid == null) return [];
+    final res = await ApiService().get('/org/roles/$sid');
+    return List<Map<String, dynamic>>.from(res['data'] ?? []);
+  } catch (_) { return []; }
 });
 
 // ── Screen ────────────────────────────────────────────────────
@@ -148,7 +165,7 @@ class EmployeeScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        flex: selected != null ? 3 : 1,
+                        flex: selected != null ? 1 : 1, // Let table share space
                         child: Card(
                           margin: EdgeInsets.zero,
                           child: _EmployeeTable(
@@ -803,12 +820,14 @@ class _EmployeeFormSheetState extends State<_EmployeeFormSheet> {
   late final TextEditingController _emailCtrl;
   late final TextEditingController _phoneCtrl;
   late final TextEditingController _empIdCtrl;
-  int    _roleLevel    = 5;
-  bool   _canApprove   = false;
+  int     _roleLevel    = 5;
+  String? _managerId;
+  bool    _canApprove   = false;
   bool   _canBulk      = false;
   bool   _isActive     = true;
   bool   _saving       = false;
   Uint8List? _photo;
+  List<String> _extraRoles = [];
 
   @override
   void initState() {
@@ -820,9 +839,11 @@ class _EmployeeFormSheetState extends State<_EmployeeFormSheet> {
     _phoneCtrl  = TextEditingController(text: e?.phone     ?? '');
     _empIdCtrl  = TextEditingController(text: e?.employeeId ?? '');
     _roleLevel  = e?.roleLevel  ?? 5;
+    _managerId  = e?.reportsToEmpId;
     _canApprove = e?.canApprove ?? false;
     _canBulk    = e?.canUploadBulk ?? false;
     _isActive   = e?.isActive   ?? true;
+    _extraRoles = List.from(e?.extraRoles ?? []);
   }
 
   @override
@@ -854,8 +875,10 @@ class _EmployeeFormSheetState extends State<_EmployeeFormSheet> {
         'email':       _emailCtrl.text.trim(),
         'phone':       _phoneCtrl.text.trim(),
         'employee_id': _empIdCtrl.text.trim(),
-        'role_level':  _roleLevel,   // backend resolves to org_role_id
+        'role_level':  _roleLevel,
+        'reports_to_emp_id': _managerId,
         'is_active':   _isActive ? 1 : 0,
+        'extra_roles': _extraRoles,
       };
       if (widget.employee?.id != null) {
         await ApiService().put('/employees/${widget.employee!.id}', body: body);
@@ -994,17 +1017,98 @@ class _EmployeeFormSheetState extends State<_EmployeeFormSheet> {
                         value:      _roleLevel,
                         style:      GoogleFonts.poppins(
                             fontSize: 13, color: AppTheme.grey900),
-                        decoration: const InputDecoration(
-                            labelText: 'Hierarchy Level *'),
+                        decoration: const InputDecoration(labelText: 'Hierarchy Level *'),
                         items: AppConstants.orgLevels.entries.map((e) =>
                             DropdownMenuItem(
                               value: e.key,
                               child: Text('Level ${e.key}: ${e.value}'),
                             )).toList(),
-                        onChanged: (v) =>
-                            setState(() => _roleLevel = v ?? _roleLevel),
+                        onChanged: (v) {
+                          setState(() {
+                            _roleLevel = v ?? _roleLevel;
+                            _managerId = null; // reset manager if level changes
+                          });
+                        },
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 16),
+
+                      // Manager Assignment
+                      Consumer(builder: (context, ref, _) {
+                        final expsAsync = ref.watch(_employeesProvider((inactive: false, hidden: false)));
+                        return expsAsync.when(
+                          loading: () => const LinearProgressIndicator(),
+                          error:   (e, _) => const SizedBox(),
+                          data:    (employees) {
+                            // Only allow users with lower roleLevel (higher up in chain) to be managers
+                            final managers = employees.where((e) => e.roleLevel < _roleLevel && e.id != widget.employee?.id).toList();
+                            return DropdownButtonFormField<String>(
+                              value: _managerId,
+                              decoration: const InputDecoration(labelText: 'Reports To (Manager)'),
+                              items: [
+                                const DropdownMenuItem(value: null, child: Text('— None (Top Level) —')),
+                                ...managers.map((m) => DropdownMenuItem(
+                                      value: m.id,
+                                      child: Text('${m.fullName} (L${m.roleLevel})'),
+                                    )),
+                              ],
+                              onChanged: (v) => setState(() => _managerId = v),
+                            );
+                          },
+                        );
+                      }),
+                      const SizedBox(height: 16),
+
+                      // Extra Roles Multi-select
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('Supplementary Roles (Optional)',
+                            style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                color: AppTheme.grey700,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                      const SizedBox(height: 8),
+                      Consumer(builder: (context, ref, _) {
+                        final rolesAsync = ref.watch(_orgRolesDropdownProvider(null));
+                        return rolesAsync.when(
+                          loading: () => const LinearProgressIndicator(),
+                          error:   (e, _) => Text('Error loading roles: $e'),
+                          data:    (roles) {
+                            if (roles.isEmpty) return const Text('No roles configured.');
+                            return Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: roles.map((role) {
+                                final isPrimary = role['level'] == _roleLevel; // rough heuristic
+                                final roleId    = role['id'] as String;
+                                final isSelected = _extraRoles.contains(roleId);
+                                return FilterChip(
+                                  label: Text(role['name'],
+                                      style: GoogleFonts.poppins(
+                                          fontSize: 11,
+                                          color: isSelected ? Colors.white : AppTheme.grey800)),
+                                  selected: isSelected,
+                                  selectedColor: AppTheme.accent,
+                                  showCheckmark: false,
+                                  side: BorderSide(
+                                      color: isSelected ? AppTheme.accent : AppTheme.grey300),
+                                  onSelected: (primary) {
+                                    if (isPrimary) return; // Can't add primary level role as extra
+                                    setState(() {
+                                      if (isSelected) {
+                                        _extraRoles.remove(roleId);
+                                      } else {
+                                        _extraRoles.add(roleId);
+                                      }
+                                    });
+                                  },
+                                );
+                              }).toList(),
+                            );
+                          },
+                        );
+                      }),
+                      const SizedBox(height: 16),
 
                       // Toggles
                       _ToggleRow(

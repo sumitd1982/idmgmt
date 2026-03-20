@@ -33,7 +33,8 @@ router.get('/', authenticate, async (req, res, next) => {
     const employees = await query(
       `SELECT e.*, r.name AS role_name, r.level AS role_level, r.can_approve, r.can_upload_bulk,
               b.name AS branch_name,
-              CONCAT(m.first_name,' ',m.last_name) AS manager_name
+              CONCAT(m.first_name,' ',m.last_name) AS manager_name,
+              IFNULL((SELECT JSON_ARRAYAGG(org_role_id) FROM employee_extra_roles WHERE employee_id = e.id), JSON_ARRAY()) AS extra_roles
        FROM employees e
        JOIN org_roles r ON r.id = e.org_role_id
        LEFT JOIN branches b ON b.id = e.branch_id
@@ -49,7 +50,8 @@ router.get('/:id', authenticate, async (req, res, next) => {
   try {
     const [emp] = await query(
       `SELECT e.*, r.name AS role_name, r.level AS role_level,
-              b.name AS branch_name, sch.name AS school_name
+              b.name AS branch_name, sch.name AS school_name,
+              IFNULL((SELECT JSON_ARRAYAGG(org_role_id) FROM employee_extra_roles WHERE employee_id = e.id), JSON_ARRAY()) AS extra_roles
        FROM employees e
        JOIN org_roles r ON r.id = e.org_role_id
        LEFT JOIN branches b ON b.id = e.branch_id
@@ -67,7 +69,7 @@ router.post('/', authenticate, requireRole('super_admin','principal','vp','head_
     const { branch_id, employee_id, org_role_id, reports_to_emp_id,
       first_name, last_name, email, phone, whatsapp_no, alt_phone,
       date_of_joining, gender, date_of_birth, address_line1, city, state, country, zip_code,
-      qualification, specialization, experience_years, assigned_classes, is_temp } = req.body;
+      qualification, specialization, experience_years, assigned_classes, is_temp, extra_roles } = req.body;
 
     // Auto-resolve school_id from employee context if not provided
     const effectiveSchoolId = req.body.school_id || req.employee?.school_id;
@@ -102,6 +104,15 @@ router.post('/', authenticate, requireRole('super_admin','principal','vp','head_
        qualification,specialization,experience_years,
        JSON.stringify(assigned_classes || []), is_temp || false]
     );
+
+    // Insert extra roles if provided
+    if (Array.isArray(extra_roles) && extra_roles.length > 0) {
+      const roleValues = extra_roles.filter(Boolean).map(roleId => [id, roleId]);
+      if (roleValues.length > 0) {
+        await query('INSERT IGNORE INTO employee_extra_roles (employee_id, org_role_id) VALUES ?', [roleValues]);
+      }
+    }
+
     const [emp] = await query('SELECT * FROM employees WHERE id = ?', [id]);
     res.status(201).json({ success: true, data: emp });
   } catch (err) { next(err); }
@@ -115,10 +126,27 @@ router.put('/:id', authenticate, async (req, res, next) => {
       'qualification','specialization','experience_years','date_of_joining','date_of_leaving',
       'assigned_classes','is_active','is_hidden','photo_url','display_name'];
     const fields = Object.keys(req.body).filter(k => allowed.includes(k));
-    if (!fields.length) return res.status(400).json({ success: false, message: 'No valid fields to update' });
-    await query(`UPDATE employees SET ${fields.map(f => `${f}=?`).join(',')} WHERE id=?`,
-      [...fields.map(f => req.body[f]), req.params.id]);
-    const [emp] = await query('SELECT * FROM employees WHERE id = ?', [req.params.id]);
+    
+    // Execute updates in a transaction since we might be updating extra roles too
+    await transaction(async (connection) => {
+      if (fields.length) {
+        await connection.query(`UPDATE employees SET ${fields.map(f => `${f}=?`).join(',')} WHERE id=?`,
+          [...fields.map(f => req.body[f]), req.params.id]);
+      }
+
+      // Handle extra_roles update if provided in request
+      if (req.body.extra_roles !== undefined) {
+        await connection.query('DELETE FROM employee_extra_roles WHERE employee_id = ?', [req.params.id]);
+        if (Array.isArray(req.body.extra_roles) && req.body.extra_roles.length > 0) {
+          const roleValues = req.body.extra_roles.filter(Boolean).map(roleId => [req.params.id, roleId]);
+          if (roleValues.length > 0) {
+            await connection.query('INSERT IGNORE INTO employee_extra_roles (employee_id, org_role_id) VALUES ?', [roleValues]);
+          }
+        }
+      }
+    });
+
+    const [emp] = await query('SELECT *, IFNULL((SELECT JSON_ARRAYAGG(org_role_id) FROM employee_extra_roles WHERE employee_id = e.id), JSON_ARRAY()) AS extra_roles FROM employees e WHERE id = ?', [req.params.id]);
     res.json({ success: true, data: emp });
   } catch (err) { next(err); }
 });

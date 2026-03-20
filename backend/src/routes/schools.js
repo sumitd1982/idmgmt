@@ -23,7 +23,11 @@ router.get('/', authenticate, async (req, res, next) => {
     let where = ['1=1'];
     let params = [];
 
-    if (req.user.role !== 'super_admin' && req.employee) {
+    if (req.user.role !== 'super_admin') {
+      if (!req.employee) {
+        // Viewer with no employee record — no school access at all
+        return res.json({ success: true, data: [], meta: { total: 0, page: +page, limit: +limit } });
+      }
       where.push('s.id = ?');
       params.push(req.employee.school_id);
     }
@@ -57,6 +61,12 @@ router.get('/', authenticate, async (req, res, next) => {
 // ── GET /schools/:id ──────────────────────────────────────────
 router.get('/:id', authenticate, async (req, res, next) => {
   try {
+    // Non-super_admin users can only view their own school
+    if (req.user.role !== 'super_admin') {
+      if (!req.employee || req.employee.school_id !== req.params.id) {
+        return res.status(403).json({ success: false, message: 'Not authorized for this school' });
+      }
+    }
     const [school] = await query(
       `SELECT s.*, u.full_name AS created_by_name
        FROM schools s
@@ -142,7 +152,11 @@ router.put('/:id',
         'address_line1','address_line2','city','state','country','zip_code',
         'phone1','phone2','email','website','whatsapp_no',
         'facebook_url','twitter_url','instagram_url','logo_url','banner_url',
-        'academic_year','timezone','is_active'];
+        'academic_year','timezone','is_active', 'settings'];
+
+      if (req.body.settings && typeof req.body.settings === 'object') {
+        req.body.settings = JSON.stringify(req.body.settings);
+      }
 
       const fields = Object.keys(req.body).filter(k => allowed.includes(k));
       if (!fields.length) return res.status(400).json({ success: false, message: 'No valid fields to update' });
@@ -159,6 +173,12 @@ router.put('/:id',
 // ── GET /schools/:id/stats ────────────────────────────────────
 router.get('/:id/stats', authenticate, async (req, res, next) => {
   try {
+    // Non-super_admin users can only view stats for their own school
+    if (req.user.role !== 'super_admin') {
+      if (!req.employee || req.employee.school_id !== req.params.id) {
+        return res.status(403).json({ success: false, message: 'Not authorized for this school' });
+      }
+    }
     const [stats] = await query(
       `SELECT
          (SELECT COUNT(*) FROM branches WHERE school_id = ? AND is_active=1) AS branches,

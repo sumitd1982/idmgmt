@@ -25,6 +25,11 @@ import 'screens/parent/parent_review_screen.dart';
 import 'screens/reports/reports_screen.dart';
 import 'screens/requests/requests_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
+import 'screens/org/roles_screen.dart';
+import 'screens/attendance/attendance_config_screen.dart';
+import 'screens/attendance/take_attendance_screen.dart';
+import 'screens/messaging/inbox_screen.dart';
+import 'screens/messaging/chat_screen.dart';
 import 'widgets/common/app_shell.dart';
 
 final _rootNavigatorKey   = GlobalKey<NavigatorState>();
@@ -108,6 +113,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(path: '/reports',         builder: (_, __) => const ReportsScreen()),
           GoRoute(path: '/requests',        builder: (_, __) => const RequestsScreen()),
+          GoRoute(path: '/roles-settings',  builder: (_, __) => const RolesSettingsScreen()),
+          GoRoute(path: '/attendance-config', builder: (_, __) => const AttendanceConfigScreen()),
+          GoRoute(path: '/take-attendance', builder: (_, __) => const TakeAttendanceScreen()),
+          GoRoute(path: '/messaging',       builder: (_, __) => const InboxScreen()),
+          GoRoute(
+            path: '/messaging/:id',
+            builder: (_, s) => ChatScreen(conversationId: s.pathParameters['id']!),
+          ),
         ],
       ),
     ],

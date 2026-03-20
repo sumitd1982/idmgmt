@@ -80,6 +80,30 @@ const _navItems = <_NavItem>[
     label: 'Reports',
   ),
   _NavItem(
+    path: '/take-attendance',
+    icon: Icons.checklist_rtl_outlined,
+    activeIcon: Icons.checklist_rtl,
+    label: 'Attendance',
+  ),
+  _NavItem(
+    path: '/messaging',
+    icon: Icons.forum_outlined,
+    activeIcon: Icons.forum,
+    label: 'Inbox',
+  ),
+  _NavItem(
+    path: '/attendance-config',
+    icon: Icons.settings_applications_outlined,
+    activeIcon: Icons.settings_applications,
+    label: 'Trackers',
+  ),
+  _NavItem(
+    path: '/roles-settings',
+    icon: Icons.admin_panel_settings_outlined,
+    activeIcon: Icons.admin_panel_settings,
+    label: 'Permissions',
+  ),
+  _NavItem(
     path: '/requests',
     icon: Icons.inbox_outlined,
     activeIcon: Icons.inbox,
@@ -102,15 +126,15 @@ List<_NavItem> _visibleNavItems(AppUser? user) {
         .where((n) => n.path != '/schools')
         .toList();
   }
-  // Head teachers see employees, students, reports, requests
+  // Head teachers see employees, students, attendance, reports, requests, messaging
   if (role == 'head_teacher') {
     return _navItems
-        .where((n) => ['/dashboard', '/employees', '/students', '/reports', '/requests'].contains(n.path))
+        .where((n) => ['/dashboard', '/employees', '/students', '/take-attendance', '/messaging', '/reports', '/requests'].contains(n.path))
         .toList();
   }
-  // Teachers only see students, id-templates, reports, requests
+  // Teachers only see students, id-templates, attendance, reports, requests, messaging
   return _navItems
-      .where((n) => ['/dashboard', '/students', '/id-templates', '/reports', '/requests'].contains(n.path))
+      .where((n) => ['/dashboard', '/students', '/id-templates', '/take-attendance', '/messaging', '/reports', '/requests'].contains(n.path))
       .toList();
 }
 
@@ -578,10 +602,16 @@ class _MobileShell extends ConsumerWidget {
       label: 'Students',
     ),
     _NavItem(
-      path: '/id-templates',
-      icon: Icons.badge_outlined,
-      activeIcon: Icons.badge,
-      label: 'ID Cards',
+      path: '/take-attendance',
+      icon: Icons.checklist_rtl_outlined,
+      activeIcon: Icons.checklist_rtl,
+      label: 'Attendance',
+    ),
+    _NavItem(
+      path: '/messaging',
+      icon: Icons.forum_outlined,
+      activeIcon: Icons.forum,
+      label: 'Inbox',
     ),
     _NavItem(
       path: '/reports',

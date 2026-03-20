@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -73,46 +74,60 @@ class AuthService {
 
   // ── Google Sign-In (Firebase) ────────────────────────────────
   Future<AppUser?> signInWithGoogle() async {
-    final googleUser = await _google.signIn();
-    if (googleUser == null) return null;
+    try {
+      final googleUser = await _google.signIn();
+      if (googleUser == null) return null;
 
-    final googleAuth = await googleUser.authentication;
-    final credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
-      idToken:     googleAuth.idToken,
-    );
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken:     googleAuth.idToken,
+      );
 
-    final userCred = await _auth.signInWithCredential(credential);
-    final token    = await userCred.user!.getIdToken();
+      final userCred = await _auth.signInWithCredential(credential);
+      final token    = await userCred.user!.getIdToken();
 
-    await _api.post('/auth/register', body: {
-      'firebase_uid':  userCred.user!.uid,
-      'email':         userCred.user!.email,
-      'full_name':     userCred.user!.displayName ?? '',
-      'display_name':  userCred.user!.displayName ?? '',
-      'photo_url':     userCred.user!.photoURL,
-    }, headers: {'Authorization': 'Bearer $token'});
+      await _api.post('/auth/register', body: {
+        'firebase_uid':  userCred.user!.uid,
+        'email':         userCred.user!.email,
+        'full_name':     userCred.user!.displayName ?? '',
+        'display_name':  userCred.user!.displayName ?? '',
+        'photo_url':     userCred.user!.photoURL,
+      }, headers: {'Authorization': 'Bearer $token'});
 
-    return getCurrentUser();
+      return getCurrentUser();
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map ? e.response!.data['message'] : e.message;
+      throw Exception(msg ?? 'Google Sign In Failed');
+    }
   }
 
   // ── Phone OTP via MSG91 (no Firebase phone auth) ─────────────
   Future<void> sendOtp(String phone) async {
-    final resp = await _api.post('/auth/otp/send', body: {'phone': phone});
-    if (resp['success'] != true) {
-      throw Exception(resp['message'] ?? 'Failed to send OTP');
+    try {
+      final resp = await _api.post('/auth/otp/send', body: {'phone': phone});
+      if (resp['success'] != true) {
+        throw Exception(resp['message'] ?? 'Failed to send OTP');
+      }
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map ? e.response!.data['message'] : e.message;
+      throw Exception(msg ?? 'Network error while sending OTP');
     }
   }
 
   Future<AppUser?> signInWithPhone(String phone, String otp) async {
-    final resp = await _api.post('/auth/otp/verify', body: {'phone': phone, 'otp': otp});
-    if (resp['success'] != true) {
-      throw Exception(resp['message'] ?? 'Invalid OTP');
+    try {
+      final resp = await _api.post('/auth/otp/verify', body: {'phone': phone, 'otp': otp});
+      if (resp['success'] != true) {
+        throw Exception(resp['message'] ?? 'Invalid OTP');
+      }
+      final token = resp['data']['token'] as String;
+      await saveToken(token);
+      return getCurrentUser();
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map ? e.response!.data['message'] : e.message;
+      throw Exception(msg ?? 'Invalid OTP or network error');
     }
-    final token = resp['data']['token'] as String;
-    await saveToken(token);
-    // Fetch full user profile (including setup-status check)
-    return getCurrentUser();
   }
 
   Future<void> signOut() async {
