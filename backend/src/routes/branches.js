@@ -9,6 +9,12 @@ router.get('/', authenticate, async (req, res, next) => {
     let where = ['b.is_active = TRUE'];
     let params = [];
     const sid = school_id || req.employee?.school_id;
+
+    // Non-super_admin with no school context sees nothing
+    if (req.user.role !== 'super_admin' && !sid) {
+      return res.json({ success: true, data: [] });
+    }
+
     if (sid)    { where.push('b.school_id = ?'); params.push(sid); }
     if (city)   { where.push('b.city = ?');      params.push(city); }
     if (country){ where.push('b.country = ?');   params.push(country); }

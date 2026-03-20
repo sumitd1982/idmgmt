@@ -60,9 +60,7 @@ class AuthNotifier extends StateNotifier<AsyncValue<AppUser?>> {
 
     // Fall back to Firebase auth stream (Google login)
     FirebaseAuth.instance.authStateChanges().listen((user) async {
-      if (user == null && state.value == null) {
-        state = const AsyncValue.data(null);
-      } else if (user != null) {
+      if (user != null) {
         try {
           final appUser = await _service.getCurrentUser();
           state = AsyncValue.data(appUser);
@@ -70,7 +68,12 @@ class AuthNotifier extends StateNotifier<AsyncValue<AppUser?>> {
           state = AsyncValue.error(e, st);
         }
       } else {
-        state = const AsyncValue.data(null);
+        // Firebase has no user — only sign out if there's no stored phone JWT
+        final storedToken = await _service.getStoredToken();
+        if (storedToken == null) {
+          state = const AsyncValue.data(null);
+        }
+        // If stored JWT exists, phone OTP user is still logged in — keep current state
       }
     });
   }

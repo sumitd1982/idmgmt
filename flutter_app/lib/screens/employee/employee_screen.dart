@@ -12,6 +12,7 @@ import 'dart:typed_data';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../services/api_service.dart';
+import '../../providers/auth_provider.dart';
 
 // ── Models ────────────────────────────────────────────────────
 class EmployeeRecord {

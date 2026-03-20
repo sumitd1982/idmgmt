@@ -20,6 +20,12 @@ router.get('/', authenticate, async (req, res, next) => {
     // By default hide hidden employees; pass include_hidden=true to show them
     if (include_hidden !== 'true') where.push('(e.is_hidden IS NULL OR e.is_hidden = FALSE)');
     const sid = school_id || req.employee?.school_id;
+
+    // Non-super_admin with no school context sees nothing
+    if (req.user.role !== 'super_admin' && !sid) {
+      return res.json({ success: true, data: [] });
+    }
+
     if (sid)         { where.push('e.school_id = ?');    params.push(sid); }
     if (branch_id)   { where.push('e.branch_id = ?');    params.push(branch_id); }
     if (org_role_id) { where.push('e.org_role_id = ?');  params.push(org_role_id); }

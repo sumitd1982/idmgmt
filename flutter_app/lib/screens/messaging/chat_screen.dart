@@ -176,7 +176,7 @@ class _ChatBubble extends StatelessWidget {
             bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(0),
             bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(16),
           ),
-          border: isMe ? null : BorderSide(color: AppTheme.grey200),
+          border: isMe ? null : Border.all(color: AppTheme.grey200),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -188,7 +188,7 @@ class _ChatBubble extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               timeStr,
-              style: GoogleFonts.poppins(fontSize: 10, color: isMe ? Colors.white70 : AppTheme.grey500),
+              style: GoogleFonts.poppins(fontSize: 10, color: isMe ? Colors.white70 : AppTheme.grey600),
             ),
           ],
         ),

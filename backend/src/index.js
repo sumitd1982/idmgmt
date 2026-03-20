@@ -31,6 +31,7 @@ const inviteRoutes       = require('./routes/invites');
 const idTemplateRoutes   = require('./routes/id_templates');
 const attendanceRoutes   = require('./routes/attendance');
 const messagingRoutes    = require('./routes/messaging');
+const dashboardRoutes    = require('./routes/dashboard');
 
 const app    = express();
 const server = http.createServer(app);
@@ -114,6 +115,7 @@ app.use(`${base}/invites`,       apiLimiter,  inviteRoutes);
 app.use(`${base}/id-templates`,  apiLimiter,  idTemplateRoutes);
 app.use(`${base}/attendance`,    apiLimiter,  attendanceRoutes);
 app.use(`${base}/messaging`,     apiLimiter,  messagingRoutes);
+app.use(`${base}/dashboard`,     apiLimiter,  dashboardRoutes);
 
 // ─── Error Handler ───────────────────────────────────────────
 app.use((err, req, res, next) => {

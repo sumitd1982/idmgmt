@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ============================================================
 # ID MANAGEMENT SYSTEM — Docker Compose
 # Runs alongside ai_trade_bot on trading-network

@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'config/theme.dart';
 import 'config/constants.dart';
+import 'models/user_model.dart';
 import 'providers/auth_provider.dart';
 import 'screens/landing/landing_screen.dart';
 import 'screens/auth/login_screen.dart';
@@ -35,33 +36,62 @@ import 'widgets/common/app_shell.dart';
 final _rootNavigatorKey   = GlobalKey<NavigatorState>();
 final _shellNavigatorKey  = GlobalKey<NavigatorState>();
 
+// Notifier that triggers GoRouter.redirect without recreating the router.
+// Previously, routerProvider watched authNotifierProvider directly, which
+// caused a new GoRouter to be built (starting at '/') on every auth state
+// change — including the intermediate AsyncValue.loading() emitted by
+// signInWithPhone — which dropped the user on the landing page instead of
+// the dashboard.
+class _RouterNotifier extends ChangeNotifier {
+  final Ref _ref;
+  late AsyncValue<AppUser?> _authState;
+
+  _RouterNotifier(this._ref) {
+    _authState = _ref.read(authNotifierProvider);
+    _ref.listen<AsyncValue<AppUser?>>(authNotifierProvider, (_, next) {
+      _authState = next;
+      notifyListeners();
+    });
+  }
+
+  String? redirect(BuildContext context, GoRouterState state) {
+    if (_authState.isLoading) return null;
+
+    final isLoggedIn   = _authState.value != null;
+    final isAuthPath   = state.matchedLocation == '/login';
+    final isLanding    = state.matchedLocation == '/';
+    final isParentPath = state.matchedLocation.startsWith('/parent-review');
+    final isOnboarding = state.matchedLocation == '/onboarding';
+
+    if (isParentPath) return null;
+
+    if (!isLoggedIn) {
+      if (isAuthPath || isLanding) return null;
+      return '/login';
+    }
+
+    if (isAuthPath || isLanding) {
+      final user = _authState.value;
+      if (user?.needsOnboarding == true) return '/onboarding';
+      return '/dashboard';
+    }
+
+    final user = _authState.value;
+    if (!isOnboarding && user?.needsOnboarding == true) {
+      return '/onboarding';
+    }
+    return null;
+  }
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
-  final authNotifier = ref.watch(authNotifierProvider);
+  final notifier = _RouterNotifier(ref);
 
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
-    redirect: (context, state) {
-      // Still loading — don't redirect yet
-      if (authNotifier.isLoading) return null;
-
-      final isLoggedIn   = authNotifier.value != null;
-      final isAuthPath   = state.matchedLocation == '/login';
-      final isPublicPath = state.matchedLocation == '/' ||
-                           state.matchedLocation.startsWith('/parent-review');
-      final isOnboarding = state.matchedLocation == '/onboarding';
-
-      if (!isLoggedIn && !isPublicPath && !isAuthPath) return '/login';
-      if (isLoggedIn  && isAuthPath)   return '/dashboard';
-
-      // Super admins who need onboarding → redirect to /onboarding
-      final user = authNotifier.value;
-      if (isLoggedIn && !isOnboarding && !isPublicPath &&
-          user?.needsOnboarding == true) {
-        return '/onboarding';
-      }
-      return null;
-    },
+    refreshListenable: notifier,
+    redirect: notifier.redirect,
     routes: [
       // ── Public Routes ─────────────────────────────────────
       GoRoute(

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base href="/">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <!-- SEO Meta Tags -->
+  <title>SchoolID Pro — Intelligent School ID Management System</title>
+  <meta name="description" content="SchoolID Pro is India's most comprehensive school identity management system. Multi-tenant, 8-level hierarchy, bulk uploads, custom ID cards, parent review via WhatsApp. CBSE compliant.">
+  <meta name="keywords" content="school ID management, student ID card, CBSE school, bulk student upload, Delhi Public School, school management software India">
+  <meta name="author" content="SchoolID Pro">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://80.225.246.32/idmgmt/">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://80.225.246.32/idmgmt/">
+  <meta property="og:title" content="SchoolID Pro — School ID Management">
+  <meta property="og:description" content="Manage 2000+ students, 8-level org hierarchy, custom ID cards, parent review via WhatsApp. Oracle Cloud powered.">
+  <meta property="og:image" content="https://80.225.246.32/idmgmt/icons/og-image.png">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SchoolID Pro — School ID Management">
+  <meta name="twitter:description" content="India's most comprehensive school identity management system. Free to start.">
+
+  <!-- Schema.org Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "SchoolID Pro",
+    "applicationCategory": "EducationalApplication",
+    "operatingSystem": "Web, Android, iOS",
+    "description": "Multi-tenant school ID management system with 8-level hierarchy, bulk student uploads, custom ID card designer, and parent review workflow.",
+    "offers": {
+      "@type": "Offer",
+      "price": "2999",
+      "priceCurrency": "INR"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "SchoolID Pro",
+      "url": "https://80.225.246.32/idmgmt/"
+    }
+  }
+  </script>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="icons/favicon.png">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Manifest -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Google Sign-In (required by google_sign_in_web) -->
+  <meta name="google-signin-client_id" content="621726457864-llt7jq1nlce4nkllu8voe65s30s1gnaq.apps.googleusercontent.com">
+
+  <!-- Theme color -->
+  <meta name="theme-color" content="#1A237E">
+
+  <!-- Preconnect for performance -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: linear-gradient(135deg, #0D1B63 0%, #1A237E 60%, #00BCD4 100%);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+    }
+
+    #loading-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      animation: fadeIn 0.5s ease-in;
+    }
+
+    .logo-container {
+      width: 80px;
+      height: 80px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: pulse 2s infinite;
+    }
+
+    .logo-container svg { width: 48px; height: 48px; fill: white; }
+
+    h1 {
+      color: white;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    p { color: rgba(255,255,255,0.75); font-size: 14px; }
+
+    .progress-bar {
+      width: 200px;
+      height: 3px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: #FFCA28;
+      border-radius: 2px;
+      animation: loading 2s ease-in-out forwards;
+    }
+
+    @keyframes loading {
+      0%   { width: 0%; }
+      100% { width: 100%; }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,202,40,0.3); }
+      50%       { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(255,202,40,0); }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading-screen">
+    <div class="logo-container">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 3L1 9l11 6 9-4.91V17h2V9M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z"/>
+      </svg>
+    </div>
+    <h1>SchoolID Pro</h1>
+    <p>Intelligent School Identity Management</p>
+    <div class="progress-bar"><div class="progress-fill"></div></div>
+    <p style="font-size:12px;opacity:0.5">Powered by Oracle Cloud Always Free</p>
+  </div>
+
+  <script>
+    // The value below is generated by the build tool
+    const serviceWorkerVersion = "1181222040";
+  </script>
+
+  <!-- Flutter Bootstrap -->
+  <script src="flutter_bootstrap.js" async></script>
+
+  <script>
+    window.addEventListener('flutter-first-frame', function() {
+      const loader = document.getElementById('loading-screen');
+      if (loader) {
+        loader.style.transition = 'opacity 0.4s';
+        loader.style.opacity = '0';
+        setTimeout(() => loader.remove(), 400);
+      }
+    });
+  </script>
+</body>
+</html>

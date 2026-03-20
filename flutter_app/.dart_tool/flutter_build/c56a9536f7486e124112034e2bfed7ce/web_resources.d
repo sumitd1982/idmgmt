@@ -1,0 +1,1 @@
+ build/web/manifest.json:  /home/ubuntu/id_mgmt/flutter_app/web/manifest.json /home/ubuntu/id_mgmt/flutter_app/web/index.html

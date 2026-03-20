@@ -8,6 +8,7 @@ const jwt   = require('jsonwebtoken');
 const { query } = require('../models/db');
 const { authenticate, verifyToken } = require('../middleware/auth');
 const admin  = require('firebase-admin');
+const logger = require('../utils/logger');
 
 const MSG91_KEY      = process.env.MSG91_AUTH_KEY;
 const MSG91_TEMPLATE = process.env.MSG91_TEMPLATE_ID;
@@ -63,38 +64,59 @@ router.post('/otp/verify', async (req, res, next) => {
     if (!phone || !otp) return res.status(400).json({ success: false, message: 'Phone and OTP required' });
 
     const mobile = phone.replace(/\D/g, '');
+    logger.info(`[LOGIN] OTP verify attempt — phone: ${mobile}`);
 
     // Allow master OTP for testing
     const MASTER_OTP = '123456';
-    if (otp !== MASTER_OTP) {
-      const resp = await axios.get('https://api.msg91.com/api/v5/otp/verify', {
-        params: { otp, mobile, authkey: MSG91_KEY }
-      });
-      if (resp.data?.type !== 'success') {
-        return res.status(401).json({ success: false, message: 'Invalid or expired OTP' });
+    if (otp === MASTER_OTP) {
+      logger.info(`[LOGIN] Master OTP used — phone: ${mobile}`);
+    } else {
+      try {
+        const resp = await axios.get('https://api.msg91.com/api/v5/otp/verify', {
+          params: { otp, mobile, authkey: MSG91_KEY }
+        });
+        if (resp.data?.type !== 'success') {
+          logger.warn(`[LOGIN] OTP verify FAILED — phone: ${mobile}, reason: ${JSON.stringify(resp.data)}`);
+          return res.status(401).json({ success: false, message: 'Invalid or expired OTP' });
+        }
+        logger.info(`[LOGIN] OTP verified via MSG91 — phone: ${mobile}`);
+      } catch (msg91Err) {
+        logger.warn(`[LOGIN] MSG91 OTP verify error — phone: ${mobile}: ${msg91Err.message}`);
+        return res.status(401).json({ success: false, message: 'OTP verification failed — network error' });
       }
     }
 
-    const roleForPhone = isSuperAdminPhone(phone) ? 'super_admin' : 'viewer';
+    const isSuperAdmin = isSuperAdminPhone(phone);
+    const roleForPhone = isSuperAdmin ? 'super_admin' : 'viewer';
+    logger.info(`[LOGIN] Role assigned — phone: ${mobile}, role: ${roleForPhone}`);
 
     // Find or create user by phone
     let [user] = await query('SELECT * FROM users WHERE phone = ? LIMIT 1', [phone]);
     if (!user) {
       const id = uuid();
+      logger.info(`[LOGIN] New user created via phone — phone: ${mobile}, role: ${roleForPhone}`);
       await query(
         `INSERT INTO users (id, phone, full_name, display_name, role) VALUES (?, ?, ?, ?, ?)`,
-        [id, phone, 'Phone User', 'Phone User', roleForPhone]
+        [id, phone, '', '', roleForPhone]
       );
       [user] = await query('SELECT * FROM users WHERE id = ?', [id]);
-    } else if (isSuperAdminPhone(phone) && user.role !== 'super_admin') {
+      logger.info(`[LOGIN] New user saved — id: ${id}, phone: ${mobile}`);
+    } else if (isSuperAdmin && user.role !== 'super_admin') {
       // Upgrade to super_admin if this is a designated super admin phone
+      logger.info(`[LOGIN] Upgrading user to super_admin — phone: ${mobile}, userId: ${user.id}`);
       await query('UPDATE users SET role = ? WHERE id = ?', ['super_admin', user.id]);
       [user] = await query('SELECT * FROM users WHERE id = ?', [user.id]);
+    } else {
+      logger.info(`[LOGIN] Existing user login — phone: ${mobile}, userId: ${user.id}, role: ${user.role}`);
     }
 
     const token = jwt.sign({ userId: user.id, phone }, JWT_SECRET, { expiresIn: '30d' });
+    logger.info(`[LOGIN] Login SUCCESS — phone: ${mobile}, userId: ${user.id}, role: ${user.role}`);
     res.json({ success: true, data: { token, user } });
-  } catch (err) { next(err); }
+  } catch (err) {
+    logger.error(`[LOGIN] OTP verify error — ${err.message}`, { stack: err.stack });
+    next(err);
+  }
 });
 
 // POST /auth/firebase — exchange Firebase token for user profile

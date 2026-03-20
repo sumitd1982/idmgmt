@@ -33,25 +33,24 @@ class _DashboardStats {
   });
 
   factory _DashboardStats.fromJson(Map<String, dynamic> j) {
-    // Backend returns { data: { totals: {...}, by_class: [...] } }
-    final t = (j['data'] as Map<String, dynamic>?)?['totals'] as Map<String, dynamic>? ?? j;
+    final data = j['data'] as Map<String, dynamic>? ?? j;
     return _DashboardStats(
-      totalStudents:  (t['total']           as num?)?.toInt() ?? 0,
-      greenCount:     (t['approved']        as num?)?.toInt() ?? 0,
-      blueCount:      (t['changes_pending'] as num?)?.toInt() ?? 0,
-      redCount:       (t['not_responded']   as num?)?.toInt() ?? 0,
-      totalEmployees: (j['total_employees'] as num?)?.toInt() ?? 0,
-      totalBranches:  (j['total_branches']  as num?)?.toInt() ?? 0,
+      totalStudents:  (data['students']          as num?)?.toInt() ?? 0,
+      greenCount:     (data['students_approved'] as num?)?.toInt() ?? 0,
+      blueCount:      (data['students_changed']  as num?)?.toInt() ?? 0,
+      redCount:       (data['students_pending']  as num?)?.toInt() ?? 0,
+      totalEmployees: (data['employees']         as num?)?.toInt() ?? 0,
+      totalBranches:  (data['branches']          as num?)?.toInt() ?? 0,
     );
   }
 
-  factory _DashboardStats.mock() => const _DashboardStats(
-        totalStudents:  1248,
-        greenCount:     842,
-        blueCount:      231,
-        redCount:       175,
-        totalEmployees: 64,
-        totalBranches:  5,
+  factory _DashboardStats.empty() => const _DashboardStats(
+        totalStudents:  0,
+        greenCount:     0,
+        blueCount:      0,
+        redCount:       0,
+        totalEmployees: 0,
+        totalBranches:  0,
       );
 }
 
@@ -91,21 +90,13 @@ class _ClassChartData {
   const _ClassChartData(this.label, this.green, this.blue, this.red);
 }
 
-class _Notification {
-  final String message;
-  final IconData icon;
-  final Color color;
-  final DateTime time;
-  const _Notification(this.message, this.icon, this.color, this.time);
-}
-
 // ── Providers ─────────────────────────────────────────────────
 final _dashboardStatsProvider = FutureProvider<_DashboardStats>((ref) async {
   try {
-    final data = await ApiService().get('/reports/dashboard');
+    final data = await ApiService().get('/dashboard/stats');
     return _DashboardStats.fromJson(data);
   } catch (_) {
-    return _DashboardStats.mock();
+    return _DashboardStats.empty();
   }
 });
 
@@ -115,22 +106,13 @@ final _recentRequestsProvider = FutureProvider<List<_ReviewRequest>>((ref) async
     final list = data['data'] as List<dynamic>? ?? [];
     return list.map((e) => _ReviewRequest.fromJson(e as Map<String, dynamic>)).toList();
   } catch (_) {
-    return _mockRequests;
+    return [];
   }
 });
 
 final _classChartProvider = FutureProvider<List<_ClassChartData>>((ref) async {
   return _mockChartData;
 });
-
-// Mock requests — using non-const constructor so we can use real DateTime values
-final _mockRequests = [
-  _ReviewRequest(id: '1', studentName: 'Arjun Kumar',   className: 'Class 5', section: 'A', status: 'parent_reviewed', createdAt: DateTime.now().subtract(const Duration(hours: 2))),
-  _ReviewRequest(id: '2', studentName: 'Priya Sharma',  className: 'Class 3', section: 'B', status: 'pending',         createdAt: DateTime.now().subtract(const Duration(hours: 5))),
-  _ReviewRequest(id: '3', studentName: 'Ravi Patel',    className: 'Class 7', section: 'A', status: 'approved',        createdAt: DateTime.now().subtract(const Duration(days: 1))),
-  _ReviewRequest(id: '4', studentName: 'Sneha Reddy',   className: 'Class 2', section: 'C', status: 'pending',         createdAt: DateTime.now().subtract(const Duration(days: 2))),
-  _ReviewRequest(id: '5', studentName: 'Mohan Singh',   className: 'Class 9', section: 'A', status: 'parent_reviewed', createdAt: DateTime.now().subtract(const Duration(days: 3))),
-];
 
 const _mockChartData = [
   _ClassChartData('Cls 1', 48, 12, 8),
@@ -228,6 +210,16 @@ class _WelcomeHeader extends StatelessWidget {
     return 'Good evening';
   }
 
+  // Show "Phone user +phone" for new phone users whose name is still blank in db
+  String _displayName() {
+    if (user == null) return 'Admin';
+    final name = (user.fullName as String?) ?? '';
+    if (name.isEmpty && user.phone != null) {
+      return 'Phone user ${user.phone}';
+    }
+    return user.displayName as String? ?? 'Admin';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -250,7 +242,7 @@ class _WelcomeHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${_greeting()}, ${user?.displayName ?? 'Admin'} 👋',
+                  '${_greeting()}, ${_displayName()} 👋',
                   style: GoogleFonts.poppins(
                     color: Colors.white,
                     fontSize: 22,
@@ -596,6 +588,8 @@ class _QuickActionBtn extends StatelessWidget {
 class _RecentRequestsTable extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final requestsAsync = ref.watch(_recentRequestsProvider);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -615,41 +609,46 @@ class _RecentRequestsTable extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(AppTheme.grey100),
-                columns: [
-                  DataColumn(
-                      label: Text('Student',
-                          style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600))),
-                  DataColumn(
-                      label: Text('Class',
-                          style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600))),
-                  DataColumn(
-                      label: Text('Status',
-                          style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600))),
-                  DataColumn(
-                      label: Text('Time',
-                          style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600))),
-                ],
-                rows: _mockRequestsData
-                    .map((r) => DataRow(cells: [
-                          DataCell(Text(r['name']!,
-                              style: GoogleFonts.poppins(fontSize: 13))),
-                          DataCell(Text(r['class']!,
-                              style: GoogleFonts.poppins(fontSize: 13))),
-                          DataCell(_StatusBadge(status: r['status']!)),
-                          DataCell(Text(r['time']!,
-                              style: GoogleFonts.poppins(
-                                  fontSize: 12, color: AppTheme.grey600))),
-                        ]))
-                    .toList(),
+            requestsAsync.when(
+              loading: () => const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(),
+                ),
               ),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (requests) {
+                if (requests.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text(
+                        'No review requests yet',
+                        style: GoogleFonts.poppins(
+                            fontSize: 13, color: AppTheme.grey600),
+                      ),
+                    ),
+                  );
+                }
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    headingRowColor: WidgetStateProperty.all(AppTheme.grey100),
+                    columns: [
+                      DataColumn(label: Text('Student', style: GoogleFonts.poppins(fontWeight: FontWeight.w600))),
+                      DataColumn(label: Text('Class',   style: GoogleFonts.poppins(fontWeight: FontWeight.w600))),
+                      DataColumn(label: Text('Status',  style: GoogleFonts.poppins(fontWeight: FontWeight.w600))),
+                      DataColumn(label: Text('Time',    style: GoogleFonts.poppins(fontWeight: FontWeight.w600))),
+                    ],
+                    rows: requests.take(5).map((r) => DataRow(cells: [
+                      DataCell(Text(r.studentName, style: GoogleFonts.poppins(fontSize: 13))),
+                      DataCell(Text('${r.className} ${r.section}', style: GoogleFonts.poppins(fontSize: 13))),
+                      DataCell(_StatusBadge(status: r.status)),
+                      DataCell(Text(timeago.format(r.createdAt), style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey600))),
+                    ])).toList(),
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -657,14 +656,6 @@ class _RecentRequestsTable extends ConsumerWidget {
     ).animate().fadeIn(delay: 300.ms, duration: 400.ms);
   }
 }
-
-const _mockRequestsData = [
-  {'name': 'Arjun Kumar',   'class': 'Class 5-A', 'status': 'parent_reviewed', 'time': '2 hrs ago'},
-  {'name': 'Priya Sharma',  'class': 'Class 3-B', 'status': 'pending',         'time': '5 hrs ago'},
-  {'name': 'Ravi Patel',    'class': 'Class 7-A', 'status': 'approved',        'time': '1 day ago'},
-  {'name': 'Sneha Reddy',   'class': 'Class 2-C', 'status': 'pending',         'time': '2 days ago'},
-  {'name': 'Mohan Singh',   'class': 'Class 9-A', 'status': 'parent_reviewed', 'time': '3 days ago'},
-];
 
 class _StatusBadge extends StatelessWidget {
   final String status;
@@ -840,21 +831,6 @@ class _Legend extends StatelessWidget {
 
 // ── Notification Feed ─────────────────────────────────────────
 class _NotificationFeed extends StatelessWidget {
-  static final _notifications = [
-    _Notification('Arjun Kumar updated guardian info', Icons.person_outline,
-        AppTheme.statusBlue, DateTime.now().subtract(const Duration(hours: 2))),
-    _Notification('Bulk upload completed: 45 students added', Icons.upload,
-        AppTheme.statusGreen, DateTime.now().subtract(const Duration(hours: 5))),
-    _Notification('12 review links pending response', Icons.pending_actions,
-        AppTheme.statusRed, DateTime.now().subtract(const Duration(hours: 8))),
-    _Notification('ID Cards generated for Class 5-A', Icons.badge,
-        AppTheme.statusGreen, DateTime.now().subtract(const Duration(days: 1))),
-    _Notification('New branch "East Campus" added', Icons.account_tree,
-        AppTheme.primary, DateTime.now().subtract(const Duration(days: 1, hours: 3))),
-    _Notification('Priya Sharma photo updated', Icons.photo,
-        AppTheme.statusBlue, DateTime.now().subtract(const Duration(days: 2))),
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -863,32 +839,20 @@ class _NotificationFeed extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Text('Notifications',
-                    style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w600, fontSize: 15)),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppTheme.accent,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text('${_notifications.length}',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700)),
-                ),
-              ],
-            ),
+            Text('Notifications',
+                style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600, fontSize: 15)),
             const SizedBox(height: 16),
-            ..._notifications.asMap().entries.map((e) {
-              final n = e.value;
-              return _NotificationItem(notification: n, index: e.key);
-            }),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text(
+                  'No notifications yet',
+                  style: GoogleFonts.poppins(
+                      fontSize: 13, color: AppTheme.grey600),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -896,54 +860,3 @@ class _NotificationFeed extends StatelessWidget {
   }
 }
 
-class _NotificationItem extends StatelessWidget {
-  final _Notification notification;
-  final int index;
-  const _NotificationItem({
-    required this.notification,
-    required this.index,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: notification.color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(notification.icon,
-                color: notification.color, size: 18),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  notification.message,
-                  style: GoogleFonts.poppins(
-                      fontSize: 12, color: AppTheme.grey800),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  timeago.format(notification.time),
-                  style: GoogleFonts.poppins(
-                      fontSize: 10, color: AppTheme.grey600),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ).animate(delay: (index * 60).ms).fadeIn(duration: 300.ms);
-  }
-}

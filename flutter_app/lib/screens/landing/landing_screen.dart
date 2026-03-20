@@ -1,12 +1,10 @@
 // ============================================================
-// Landing Page — Marketing + Home
-// Beautiful, animated, SEO-friendly landing page
+// Landing Screen — SchoolID Pro (rebuilt from scratch)
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
@@ -18,63 +16,195 @@ class LandingScreen extends StatefulWidget {
   State<LandingScreen> createState() => _LandingScreenState();
 }
 
-class _LandingScreenState extends State<LandingScreen> {
-  final _scrollController = ScrollController();
-  bool _isScrolled = false;
+class _LandingScreenState extends State<LandingScreen>
+    with SingleTickerProviderStateMixin {
+  final _scrollCtrl = ScrollController();
+  bool _scrolled = false;
+  late AnimationController _bgAnim;
 
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(() {
-      setState(() => _isScrolled = _scrollController.offset > 50);
+    _bgAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 8),
+    )..repeat(reverse: true);
+    _scrollCtrl.addListener(() {
+      final s = _scrollCtrl.offset > 40;
+      if (s != _scrolled) setState(() => _scrolled = s);
     });
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _scrollCtrl.dispose();
+    _bgAnim.dispose();
     super.dispose();
-  }
-
-  void _scrollTo(GlobalKey key) {
-    Scrollable.ensureVisible(key.currentContext!,
-      duration: const Duration(milliseconds: 800),
-      curve: Curves.easeInOut,
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = ResponsiveBreakpoints.of(context).isMobile;
-
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF06070F),
       body: Stack(
         children: [
-          // ── Main Content ────────────────────────────────────
-          CustomScrollView(
-            controller: _scrollController,
-            slivers: [
-              SliverToBoxAdapter(child: _HeroSection()),
-              SliverToBoxAdapter(child: _StatsBar()),
-              SliverToBoxAdapter(child: _FeaturesSection()),
-              SliverToBoxAdapter(child: _HowItWorksSection()),
-              SliverToBoxAdapter(child: _IdCardShowcase()),
-              SliverToBoxAdapter(child: _TestimonialsSection()),
-              SliverToBoxAdapter(child: _PricingSection()),
-              SliverToBoxAdapter(child: _AboutSection()),
-              SliverToBoxAdapter(child: _ContactSection()),
-              SliverToBoxAdapter(child: _Footer()),
-            ],
-          ),
-
-          // ── Sticky Top Navigation ──────────────────────────
-          Positioned(
-            top: 0, left: 0, right: 0,
-            child: _TopNav(
-              isScrolled: _isScrolled,
-              onLogin: () => context.go('/login'),
+          SingleChildScrollView(
+            controller: _scrollCtrl,
+            child: Column(
+              children: [
+                _HeroSection(bgAnim: _bgAnim),
+                _LogoStrip(),
+                _FeaturesSection(),
+                _HowItWorksSection(),
+                _StatsSection(),
+                _CtaBanner(),
+                _Footer(),
+              ],
             ),
+          ),
+          _NavBar(scrolled: _scrolled),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// NAV BAR
+// ─────────────────────────────────────────────────────────────
+class _NavBar extends StatelessWidget {
+  final bool scrolled;
+  const _NavBar({required this.scrolled});
+
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = ResponsiveBreakpoints.of(context).smallerThan(TABLET);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      color: scrolled
+          ? const Color(0xFF06070F).withValues(alpha: 0.95)
+          : Colors.transparent,
+      child: SafeArea(
+        child: SizedBox(
+          height: 68,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 48),
+            child: Row(
+              children: [
+                // Logo
+                Row(children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.heroGradient,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.school_rounded,
+                        color: Colors.white, size: 22),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(AppConstants.appName,
+                      style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700)),
+                ]),
+                const Spacer(),
+                if (!isMobile) ...[
+                  _NavLink('Features'),
+                  _NavLink('How it works'),
+                  _NavLink('Pricing'),
+                  const SizedBox(width: 8),
+                ],
+                TextButton(
+                  onPressed: () => context.go('/login'),
+                  style:
+                      TextButton.styleFrom(foregroundColor: Colors.white70),
+                  child: Text('Sign in',
+                      style: GoogleFonts.poppins(
+                          fontSize: 14, fontWeight: FontWeight.w500)),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () => context.go('/login'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.secondary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    elevation: 0,
+                  ),
+                  child: Text('Get started',
+                      style: GoogleFonts.poppins(
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavLink extends StatelessWidget {
+  final String label;
+  const _NavLink(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: TextButton(
+        onPressed: () {},
+        style: TextButton.styleFrom(foregroundColor: Colors.white70),
+        child: Text(label,
+            style: GoogleFonts.poppins(
+                fontSize: 14, fontWeight: FontWeight.w500)),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// HERO SECTION
+// ─────────────────────────────────────────────────────────────
+class _HeroSection extends StatelessWidget {
+  final AnimationController bgAnim;
+  const _HeroSection({required this.bgAnim});
+
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = ResponsiveBreakpoints.of(context).smallerThan(TABLET);
+
+    return SizedBox(
+      height: isMobile ? null : 780,
+      child: Stack(
+        children: [
+          Positioned.fill(child: _GradientBackground(anim: bgAnim)),
+          Positioned.fill(child: CustomPaint(painter: _GridPainter())),
+          Padding(
+            padding: EdgeInsets.only(
+              top: 100,
+              left: isMobile ? 24 : 80,
+              right: isMobile ? 24 : 80,
+              bottom: 80,
+            ),
+            child: isMobile
+                ? _HeroContent(isMobile: true)
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Expanded(
+                          flex: 5, child: _HeroContent(isMobile: false)),
+                      const SizedBox(width: 60),
+                      Expanded(flex: 4, child: _HeroDashboardPreview()),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -82,78 +212,374 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Top Navigation Bar
-// ──────────────────────────────────────────────────────────────
-class _TopNav extends StatelessWidget {
-  final bool isScrolled;
-  final VoidCallback onLogin;
-
-  const _TopNav({required this.isScrolled, required this.onLogin});
+class _HeroContent extends StatelessWidget {
+  final bool isMobile;
+  const _HeroContent({required this.isMobile});
 
   @override
   Widget build(BuildContext context) {
-    final isMobile = ResponsiveBreakpoints.of(context).isMobile;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      color: isScrolled ? Colors.white : Colors.transparent,
-      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-      child: SafeArea(
-        child: Row(
-          children: [
-            // Logo
-            Row(
-              children: [
-                Container(
-                  width: 40, height: 40,
-                  decoration: BoxDecoration(
-                    gradient: AppTheme.primaryGradient,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.school, color: Colors.white, size: 24),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  AppConstants.appName,
-                  style: GoogleFonts.poppins(
-                    fontSize: 20, fontWeight: FontWeight.w700,
-                    color: isScrolled ? AppTheme.primary : Colors.white,
-                  ),
-                ),
-              ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // Pill badge
+        Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            border: Border.all(
+                color: AppTheme.secondary.withValues(alpha: 0.4)),
+            borderRadius: BorderRadius.circular(20),
+            color: AppTheme.secondary.withValues(alpha: 0.08),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                  color: AppTheme.secondary, shape: BoxShape.circle),
             ),
+            const SizedBox(width: 8),
+            Text('Trusted by 500+ schools across India',
+                style: GoogleFonts.poppins(
+                    color: AppTheme.secondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500)),
+          ]),
+        ).animate().fadeIn(delay: 100.ms).slideY(begin: 0.3),
 
-            const Spacer(),
+        const SizedBox(height: 28),
 
-            // Nav links (desktop only)
-            if (!isMobile) ...[
-              for (final item in ['Features', 'About', 'Contact'])
-                TextButton(
-                  onPressed: () {},
-                  child: Text(item,
-                    style: GoogleFonts.poppins(
-                      color: isScrolled ? AppTheme.grey800 : Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+        // Headline
+        Text(
+          'School Identity\nManagement,\nReimagined.',
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontSize: isMobile ? 36 : 58,
+            fontWeight: FontWeight.w800,
+            height: 1.08,
+            letterSpacing: -1.5,
+          ),
+        ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.3),
+
+        const SizedBox(height: 20),
+
+        Text(
+          'Design ID cards, manage student data,\nrun parent reviews and print — one dashboard.',
+          style: GoogleFonts.poppins(
+            color: Colors.white.withValues(alpha: 0.5),
+            fontSize: isMobile ? 15 : 17,
+            height: 1.7,
+          ),
+        ).animate().fadeIn(delay: 300.ms).slideY(begin: 0.3),
+
+        const SizedBox(height: 40),
+
+        // CTA buttons
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            Builder(
+              builder: (ctx) => ElevatedButton(
+                onPressed: () => ctx.go('/login'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.secondary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 28, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
                 ),
-              const SizedBox(width: 8),
-            ],
-
-            // Login Button
-            ElevatedButton.icon(
-              onPressed: onLogin,
-              icon: const Icon(Icons.login, size: 18),
-              label: const Text('Login / Sign Up'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isScrolled ? AppTheme.primary : Colors.white,
-                foregroundColor: isScrolled ? Colors.white : AppTheme.primary,
-                elevation: 2,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('Start free trial',
+                      style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w700, fontSize: 15)),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.arrow_forward_rounded, size: 18),
+                ]),
               ),
             ),
+            OutlinedButton(
+              onPressed: () {},
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.2)),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 28, vertical: 16),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: Text('Watch demo',
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600, fontSize: 15)),
+            ),
+          ],
+        ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.3),
+
+        const SizedBox(height: 40),
+
+        // Social proof avatars
+        Row(children: [
+          ...List.generate(
+            4,
+            (i) => Container(
+              width: 32,
+              height: 32,
+              margin: EdgeInsets.only(left: i > 0 ? -8 : 0),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: [
+                  const Color(0xFF6C63FF),
+                  const Color(0xFF00BCD4),
+                  const Color(0xFFFF6584),
+                  const Color(0xFF43A047),
+                ][i],
+                border: Border.all(
+                    color: const Color(0xFF06070F), width: 2),
+              ),
+              child: Center(
+                child: Text(['R', 'P', 'S', 'A'][i],
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Text('2,000+ educators joined this year',
+              style: GoogleFonts.poppins(
+                  color: Colors.white.withValues(alpha: 0.4),
+                  fontSize: 13)),
+        ]).animate().fadeIn(delay: 500.ms),
+      ],
+    );
+  }
+}
+
+class _HeroDashboardPreview extends StatelessWidget {
+  const _HeroDashboardPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(24),
+        border:
+            Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Mini ID card
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0D1B63), Color(0xFF1565C0)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(children: [
+              Container(
+                width: 52,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.person_rounded,
+                    color: Colors.white, size: 36),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Rahul Sharma',
+                        style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15)),
+                    const SizedBox(height: 4),
+                    Text('Class X-A  •  Roll 14',
+                        style: GoogleFonts.poppins(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 12)),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppTheme.secondary.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text('DPS, New Delhi',
+                          style: GoogleFonts.poppins(
+                              color: AppTheme.secondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600)),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.all(4),
+                child: const Icon(Icons.qr_code_2_rounded,
+                    color: Color(0xFF0D1B63), size: 36),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 18),
+
+          // Mini stats
+          Row(children: [
+            _PreviewStat('2,400', 'Students'),
+            const SizedBox(width: 10),
+            _PreviewStat('98%', 'Approved'),
+            const SizedBox(width: 10),
+            _PreviewStat('6 hrs', 'Saved/week'),
+          ]),
+          const SizedBox(height: 18),
+
+          // Activity feed
+          for (final item in [
+            (Icons.upload_rounded, 'Bulk upload complete', 'Just now',
+                AppTheme.secondary),
+            (Icons.rate_review_rounded, '12 parent reviews pending',
+                '2 min ago', AppTheme.accentLight),
+            (Icons.print_rounded, 'ID cards ready to print', '5 min ago',
+                AppTheme.statusGreen),
+          ])
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.06)),
+              ),
+              child: Row(children: [
+                Icon(item.$1, color: item.$4, size: 15),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: Text(item.$2,
+                        style: GoogleFonts.poppins(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 12))),
+                Text(item.$3,
+                    style: GoogleFonts.poppins(
+                        color: Colors.white.withValues(alpha: 0.3),
+                        fontSize: 11)),
+              ]),
+            ),
+        ],
+      ),
+    )
+        .animate()
+        .fadeIn(delay: 450.ms, duration: 600.ms)
+        .slideX(begin: 0.12);
+  }
+}
+
+class _PreviewStat extends StatelessWidget {
+  final String value;
+  final String label;
+  const _PreviewStat(this.value, this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(children: [
+          Text(value,
+              style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15)),
+          const SizedBox(height: 2),
+          Text(label,
+              style: GoogleFonts.poppins(
+                  color: Colors.white.withValues(alpha: 0.35),
+                  fontSize: 10)),
+        ]),
+      ),
+    );
+  }
+}
+
+// Animated gradient blobs
+class _GradientBackground extends StatelessWidget {
+  final AnimationController anim;
+  const _GradientBackground({required this.anim});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (_, __) {
+        final t = anim.value;
+        return Stack(children: [
+          Container(color: const Color(0xFF06070F)),
+          Positioned(
+            top: -80 + 40 * t,
+            left: -60 + 30 * t,
+            child: _Blob(380, const Color(0xFF1A237E), 0.5),
+          ),
+          Positioned(
+            top: 180 - 50 * t,
+            right: -40 + 40 * t,
+            child: _Blob(300, const Color(0xFF006064), 0.38),
+          ),
+          Positioned(
+            bottom: 80 + 30 * t,
+            left: 220 + 20 * t,
+            child: _Blob(240, const Color(0xFF4A148C), 0.3),
+          ),
+        ]);
+      },
+    );
+  }
+}
+
+class _Blob extends StatelessWidget {
+  final double size;
+  final Color color;
+  final double opacity;
+  const _Blob(this.size, this.color, this.opacity);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            color.withValues(alpha: opacity),
+            color.withValues(alpha: 0),
           ],
         ),
       ),
@@ -161,342 +587,204 @@ class _TopNav extends StatelessWidget {
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Hero Section
-// ──────────────────────────────────────────────────────────────
-class _HeroSection extends StatelessWidget {
+class _GridPainter extends CustomPainter {
   @override
-  Widget build(BuildContext context) {
-    final isMobile = ResponsiveBreakpoints.of(context).isMobile;
-    final isTablet = ResponsiveBreakpoints.of(context).isTablet;
-
-    return Container(
-      height: isMobile ? 680 : 720,
-      decoration: const BoxDecoration(gradient: AppTheme.heroGradient),
-      child: Stack(
-        children: [
-          // Background pattern
-          Positioned.fill(
-            child: CustomPaint(painter: _GridPainter()),
-          ),
-
-          // Floating shapes
-          ..._buildFloatingShapes(),
-
-          // Content
-          Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: isMobile ? 24 : 80,
-                vertical: 100,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.3)),
-                    ),
-                    child: Text(
-                      '🏆  #1 School ID Management Platform in India',
-                      style: GoogleFonts.poppins(
-                        color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ).animate().fadeIn(delay: 200.ms).slideY(begin: -0.3),
-
-                  const SizedBox(height: 24),
-
-                  // Headline
-                  Text(
-                    'Smart School ID\nManagement System',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(
-                      fontSize: isMobile ? 32 : 52,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                      height: 1.2,
-                    ),
-                  ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.3),
-
-                  const SizedBox(height: 16),
-
-                  // Animated subtitle
-                  DefaultTextStyle(
-                    style: GoogleFonts.poppins(
-                      fontSize: isMobile ? 16 : 20,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                    child: AnimatedTextKit(
-                      repeatForever: true,
-                      animatedTexts: [
-                        TypewriterAnimatedText('Manage 2000+ students effortlessly'),
-                        TypewriterAnimatedText('8-level org hierarchy, zero confusion'),
-                        TypewriterAnimatedText('Custom ID cards, plug & play themes'),
-                        TypewriterAnimatedText('Parent review via WhatsApp & SMS'),
-                      ],
-                    ),
-                  ).animate().fadeIn(delay: 600.ms),
-
-                  const SizedBox(height: 16),
-
-                  Text(
-                    'Multi-tenant · Multi-branch · Multi-role · Multi-country',
-                    style: GoogleFonts.poppins(
-                      color: Colors.white.withOpacity(0.7),
-                      fontSize: 13,
-                    ),
-                  ).animate().fadeIn(delay: 700.ms),
-
-                  const SizedBox(height: 40),
-
-                  // CTA buttons
-                  Wrap(
-                    spacing: 16, runSpacing: 12,
-                    alignment: WrapAlignment.center,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: () => GoRouter.of(context).go('/login'),
-                        icon: const Icon(Icons.rocket_launch, size: 20),
-                        label: const Text('Get Started Free'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.accentLight,
-                          foregroundColor: AppTheme.grey900,
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
-                          textStyle: GoogleFonts.poppins(
-                            fontSize: 16, fontWeight: FontWeight.w700),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          elevation: 8,
-                          shadowColor: AppTheme.accentLight.withOpacity(0.5),
-                        ),
-                      ).animate().fadeIn(delay: 800.ms).scale(begin: const Offset(0.8, 0.8)),
-
-                      OutlinedButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.play_circle_outline, size: 20),
-                        label: const Text('Watch Demo'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: const BorderSide(color: Colors.white, width: 2),
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 18),
-                          textStyle: GoogleFonts.poppins(
-                            fontSize: 16, fontWeight: FontWeight.w600),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                      ).animate().fadeIn(delay: 900.ms).scale(begin: const Offset(0.8, 0.8)),
-                    ],
-                  ),
-
-                  const SizedBox(height: 40),
-
-                  // Trust badges
-                  Wrap(
-                    spacing: 24, runSpacing: 8,
-                    alignment: WrapAlignment.center,
-                    children: [
-                      _TrustBadge(icon: Icons.verified_user, text: 'CBSE Compliant'),
-                      _TrustBadge(icon: Icons.lock, text: 'Data Encrypted'),
-                      _TrustBadge(icon: Icons.cloud, text: 'Oracle Cloud'),
-                      _TrustBadge(icon: Icons.devices, text: 'Web + Mobile'),
-                    ],
-                  ).animate().fadeIn(delay: 1000.ms),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.025)
+      ..strokeWidth = 1;
+    const gap = 52.0;
+    for (var x = 0.0; x < size.width; x += gap) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (var y = 0.0; y < size.height; y += gap) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
   }
 
-  List<Widget> _buildFloatingShapes() => [
-    _FloatingShape(top: 80, left: -60, size: 200, opacity: 0.06),
-    _FloatingShape(top: 300, right: -80, size: 250, opacity: 0.05),
-    _FloatingShape(bottom: 60, left: 100, size: 150, opacity: 0.08),
-  ];
+  @override
+  bool shouldRepaint(_) => false;
 }
 
-class _FloatingShape extends StatelessWidget {
-  final double? top, left, right, bottom, size, opacity;
-  const _FloatingShape({this.top, this.left, this.right, this.bottom, this.size, this.opacity});
+// ─────────────────────────────────────────────────────────────
+// LOGO STRIP
+// ─────────────────────────────────────────────────────────────
+class _LogoStrip extends StatelessWidget {
+  const _LogoStrip();
+
+  static const _schools = [
+    'Delhi Public School',
+    'Kendriya Vidyalaya',
+    'Ryan International',
+    'DAV Public School',
+    'Amity School',
+    'Bal Bharati School',
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      top: top, left: left, right: right, bottom: bottom,
-      child: Container(
-        width: size, height: size,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(opacity ?? 0.05),
-          shape: BoxShape.circle,
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 36),
+      decoration: BoxDecoration(
+        border: Border.symmetric(
+          horizontal: BorderSide(
+              color: Colors.white.withValues(alpha: 0.06)),
         ),
       ),
+      child: Column(children: [
+        Text('TRUSTED BY LEADING SCHOOLS ACROSS INDIA',
+            style: GoogleFonts.poppins(
+                color: Colors.white.withValues(alpha: 0.25),
+                fontSize: 11,
+                letterSpacing: 2.5,
+                fontWeight: FontWeight.w600)),
+        const SizedBox(height: 24),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 40,
+          runSpacing: 16,
+          children: _schools
+              .map((s) => Text(s,
+                  style: GoogleFonts.poppins(
+                      color: Colors.white.withValues(alpha: 0.18),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600)))
+              .toList(),
+        ),
+      ]),
     );
   }
 }
 
-class _TrustBadge extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _TrustBadge({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: Colors.white.withOpacity(0.8), size: 16),
-        const SizedBox(width: 6),
-        Text(text, style: GoogleFonts.poppins(
-          color: Colors.white.withOpacity(0.8), fontSize: 12)),
-      ],
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────
-// Stats Bar
-// ──────────────────────────────────────────────────────────────
-class _StatsBar extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 40),
-      decoration: BoxDecoration(
-        color: AppTheme.primary,
-        boxShadow: [BoxShadow(color: AppTheme.primary.withOpacity(0.3),
-          blurRadius: 20, offset: const Offset(0, 8))],
-      ),
-      child: Wrap(
-        alignment: WrapAlignment.spaceEvenly,
-        spacing: 32, runSpacing: 24,
-        children: [
-          _StatItem(number: '500+', label: 'Schools', icon: Icons.account_balance),
-          _StatItem(number: '2,000+', label: 'Branches', icon: Icons.business),
-          _StatItem(number: '5L+', label: 'Students', icon: Icons.people),
-          _StatItem(number: '99.9%', label: 'Uptime', icon: Icons.cloud_done),
-        ],
-      ),
-    ).animate().fadeIn().slideY(begin: 0.2);
-  }
-}
-
-class _StatItem extends StatelessWidget {
-  final String number, label;
-  final IconData icon;
-  const _StatItem({required this.number, required this.label, required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(icon, color: AppTheme.accentLight, size: 28),
-        const SizedBox(height: 8),
-        Text(number, style: GoogleFonts.poppins(
-          fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white)),
-        Text(label, style: GoogleFonts.poppins(
-          fontSize: 13, color: Colors.white.withOpacity(0.8))),
-      ],
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────
-// Features Section
-// ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// FEATURES SECTION
+// ─────────────────────────────────────────────────────────────
 class _FeaturesSection extends StatelessWidget {
-  final features = const [
-    _Feature(
-      icon: Icons.account_tree, color: Color(0xFF1565C0),
-      title: '8-Level Hierarchy',
-      desc: 'Principal → VP → Head Teacher → Senior → Class → Subject → Backup → Temp. '
-            'Full org-chart with role-based permissions and N+1 approval chains.',
+  const _FeaturesSection();
+
+  static const _features = [
+    (
+      Icons.account_tree_rounded,
+      '8-Level Org Hierarchy',
+      'Principal down to substitute — full org chart with role-based permissions and approvals.',
+      Color(0xFF6C63FF),
     ),
-    _Feature(
-      icon: Icons.badge, color: Color(0xFF2E7D32),
-      title: 'Plug & Play ID Cards',
-      desc: 'Design custom dual-sided ID cards with drag-and-drop themes. '
-            'Multiple layouts, color schemes, logos, QR codes, and custom text fields.',
+    (
+      Icons.badge_rounded,
+      'Plug & Play ID Cards',
+      'Drag-and-drop designer with 8 themes. Front + back. QR code and photo.',
+      Color(0xFF00BCD4),
     ),
-    _Feature(
-      icon: Icons.people, color: Color(0xFF6A1B9A),
-      title: 'Parent Review Portal',
-      desc: 'Class teachers send review links via WhatsApp/SMS/Email. '
-            'Parents review and update student details. N+1 chain approves changes.',
+    (
+      Icons.groups_rounded,
+      'Parent Review Portal',
+      'Send review links via WhatsApp/SMS. Parents approve or request changes instantly.',
+      Color(0xFF43A047),
     ),
-    _Feature(
-      icon: Icons.upload_file, color: Color(0xFFE65100),
-      title: 'Bulk Upload & Validate',
-      desc: 'Upload 2000 students or 100+ employees via Excel template. '
-            'Row-level validation report with error details before import.',
+    (
+      Icons.upload_file_rounded,
+      '2,000+ Bulk Upload',
+      'Excel import with live validation. Handles duplicates, missing fields and photos.',
+      Color(0xFFFF9800),
     ),
-    _Feature(
-      icon: Icons.bar_chart, color: Color(0xFF00838F),
-      title: 'Smart Reports',
-      desc: 'Green = Verified ✓, Blue = Changed ⟳, Red = Pending ✗. '
-            'Teacher-wise, class-wise, branch-wise, school-wide dashboards.',
+    (
+      Icons.insert_chart_rounded,
+      'Real-time Reports',
+      'Pending, approved and changed — live status across all branches and classes.',
+      Color(0xFFE91E63),
     ),
-    _Feature(
-      icon: Icons.notifications_active, color: Color(0xFFC62828),
-      title: 'MSG91 Integration',
-      desc: 'Send WhatsApp, SMS, and Email notifications via MSG91. '
-            'Automated review links, approval alerts, and bulk messaging.',
-    ),
-    _Feature(
-      icon: Icons.account_balance, color: Color(0xFF37474F),
-      title: 'Multi-Tenant Schools',
-      desc: 'One platform, many schools. Each school has its own branches, '
-            'staff, students, themes, and data — fully isolated.',
-    ),
-    _Feature(
-      icon: Icons.devices, color: Color(0xFF1B5E20),
-      title: 'Web + iOS + Android',
-      desc: 'Flutter-powered — one codebase for all platforms. '
-            'Responsive design works beautifully on phones, tablets, and desktops.',
+    (
+      Icons.school_rounded,
+      'Multi-School & Branch',
+      'One account for multiple campuses. Per-branch admins and independent workflows.',
+      Color(0xFF009688),
     ),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = ResponsiveBreakpoints.of(context).smallerThan(TABLET);
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 40),
-      color: AppTheme.grey50,
-      child: Column(
-        children: [
-          _SectionHeader(
-            tag: 'FEATURES',
-            title: 'Everything You Need\nto Manage School IDs',
-            subtitle: 'A complete ecosystem for modern school identity management',
-          ),
-          const SizedBox(height: 60),
-          LayoutBuilder(builder: (ctx, constraints) {
-            final cols = constraints.maxWidth > 900 ? 4 :
-                         constraints.maxWidth > 600 ? 2 : 1;
-            return _ResponsiveGrid(
-              columns: cols, children: features.map((f) => _FeatureCard(f)).toList(),
-            );
-          }),
-        ],
-      ),
+      padding: EdgeInsets.symmetric(
+          vertical: 100, horizontal: isMobile ? 24 : 80),
+      child: Column(children: [
+        _SectionLabel('FEATURES'),
+        const SizedBox(height: 16),
+        Text('Everything your school needs',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontSize: isMobile ? 28 : 42,
+                fontWeight: FontWeight.w800)),
+        const SizedBox(height: 12),
+        Text('From first upload to final print — all in one place.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 16)),
+        const SizedBox(height: 60),
+        _buildGrid(isMobile),
+      ]),
     );
   }
-}
 
-class _Feature {
-  final IconData icon;
-  final Color color;
-  final String title, desc;
-  const _Feature({required this.icon, required this.color,
-                  required this.title, required this.desc});
+  Widget _buildGrid(bool isMobile) {
+    if (isMobile) {
+      return Column(
+        children: _features
+            .asMap()
+            .entries
+            .map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _FeatureCard(
+                      icon: e.value.$1,
+                      title: e.value.$2,
+                      desc: e.value.$3,
+                      color: e.value.$4,
+                      delay: e.key * 80),
+                ))
+            .toList(),
+      );
+    }
+
+    return LayoutBuilder(builder: (context, constraints) {
+      final cardW = (constraints.maxWidth - 16) / 3;
+      return Wrap(
+        spacing: 16,
+        runSpacing: 16,
+        children: _features
+            .asMap()
+            .entries
+            .map((e) => SizedBox(
+                  width: cardW,
+                  child: _FeatureCard(
+                      icon: e.value.$1,
+                      title: e.value.$2,
+                      desc: e.value.$3,
+                      color: e.value.$4,
+                      delay: e.key * 80),
+                ))
+            .toList(),
+      );
+    });
+  }
 }
 
 class _FeatureCard extends StatefulWidget {
-  final _Feature feature;
-  const _FeatureCard(this.feature);
+  final IconData icon;
+  final String title;
+  final String desc;
+  final Color color;
+  final int delay;
+
+  const _FeatureCard({
+    required this.icon,
+    required this.title,
+    required this.desc,
+    required this.color,
+    required this.delay,
+  });
 
   @override
   State<_FeatureCard> createState() => _FeatureCardState();
@@ -509,1066 +797,460 @@ class _FeatureCardState extends State<_FeatureCard> {
   Widget build(BuildContext context) {
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
-      onExit:  (_) => setState(() => _hovered = false),
+      onExit: (_) => setState(() => _hovered = false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        transform: Matrix4.translationValues(0, _hovered ? -6 : 0, 0),
-        child: Card(
-          elevation: _hovered ? 12 : 3,
-          shadowColor: widget.feature.color.withOpacity(0.2),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Padding(
-            padding: const EdgeInsets.all(28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 52, height: 52,
-                  decoration: BoxDecoration(
-                    color: widget.feature.color.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(widget.feature.icon, color: widget.feature.color, size: 28),
-                ),
-                const SizedBox(height: 20),
-                Text(widget.feature.title,
-                  style: GoogleFonts.poppins(
-                    fontSize: 16, fontWeight: FontWeight.w700, color: AppTheme.grey900)),
-                const SizedBox(height: 10),
-                Text(widget.feature.desc,
-                  style: GoogleFonts.poppins(
-                    fontSize: 13, color: AppTheme.grey600, height: 1.6)),
-              ],
-            ),
-          ),
-        ),
-      ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.3),
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────
-// How It Works
-// ──────────────────────────────────────────────────────────────
-class _HowItWorksSection extends StatelessWidget {
-  final steps = const [
-    _Step(number: '01', title: 'Create School',
-          desc: 'Principal registers school with all details. Multiple branches added instantly.',
-          icon: Icons.add_business),
-    _Step(number: '02', title: 'Build Org Structure',
-          desc: 'Define 8-level hierarchy. Assign reporting lines. Upload staff via Excel.',
-          icon: Icons.account_tree),
-    _Step(number: '03', title: 'Import Students',
-          desc: 'Bulk upload 2000+ students with auto-validation. Photos via Firebase Storage.',
-          icon: Icons.group_add),
-    _Step(number: '04', title: 'Design ID Cards',
-          desc: 'Choose themes, customize layouts, add logos. Preview front & back instantly.',
-          icon: Icons.badge),
-    _Step(number: '05', title: 'Parent Review',
-          desc: 'Send review links via WhatsApp. Parents confirm or update. Teachers approve.',
-          icon: Icons.rate_review),
-    _Step(number: '06', title: 'Print & Export',
-          desc: 'Generate PDFs, bulk print ID cards. Export reports to Excel.',
-          icon: Icons.print),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 40),
-      decoration: const BoxDecoration(gradient: AppTheme.primaryGradient),
-      child: Column(
-        children: [
-          _SectionHeader(
-            tag: 'HOW IT WORKS',
-            title: 'From Setup to\nPrinted ID in Minutes',
-            subtitle: 'Simple 6-step process for any school size',
-            lightTheme: true,
-          ),
-          const SizedBox(height: 60),
-          Wrap(
-            spacing: 24, runSpacing: 24,
-            alignment: WrapAlignment.center,
-            children: steps.map((s) => _StepCard(s)).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Step {
-  final String number, title, desc;
-  final IconData icon;
-  const _Step({required this.number, required this.title,
-               required this.desc, required this.icon});
-}
-
-class _StepCard extends StatelessWidget {
-  final _Step step;
-  const _StepCard(this.step);
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 260,
-      child: Container(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.08),
+          color: _hovered
+              ? Colors.white.withValues(alpha: 0.07)
+              : Colors.white.withValues(alpha: 0.03),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withOpacity(0.15)),
+          border: Border.all(
+            color: _hovered
+                ? widget.color.withValues(alpha: 0.35)
+                : Colors.white.withValues(alpha: 0.07),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              Text(step.number,
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: widget.color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(widget.icon, color: widget.color, size: 24),
+            ),
+            const SizedBox(height: 18),
+            Text(widget.title,
                 style: GoogleFonts.poppins(
-                  fontSize: 36, fontWeight: FontWeight.w800,
-                  color: AppTheme.accentLight.withOpacity(0.6))),
-              const Spacer(),
-              Icon(step.icon, color: AppTheme.accentLight, size: 28),
-            ]),
-            const SizedBox(height: 12),
-            Text(step.title, style: GoogleFonts.poppins(
-              fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16)),
             const SizedBox(height: 8),
-            Text(step.desc, style: GoogleFonts.poppins(
-              fontSize: 12, color: Colors.white.withOpacity(0.75), height: 1.6)),
+            Text(widget.desc,
+                style: GoogleFonts.poppins(
+                    color: Colors.white.withValues(alpha: 0.42),
+                    fontSize: 13,
+                    height: 1.65)),
           ],
         ),
-      ).animate().fadeIn(delay: 200.ms).slideY(begin: 0.2),
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────
-// ID Card Showcase
-// ──────────────────────────────────────────────────────────────
-class _IdCardShowcase extends StatefulWidget {
-  @override
-  State<_IdCardShowcase> createState() => _IdCardShowcaseState();
-}
-
-class _IdCardShowcaseState extends State<_IdCardShowcase>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  bool _showBack = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this,
-      duration: const Duration(milliseconds: 600));
-  }
-
-  @override
-  void dispose() { _controller.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 40),
-      color: Colors.white,
-      child: Column(
-        children: [
-          _SectionHeader(
-            tag: 'ID CARD DESIGNER',
-            title: 'Beautiful ID Cards\nWith Custom Themes',
-            subtitle: 'Dual-sided, plug & play — change themes in one click',
-          ),
-          const SizedBox(height: 60),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 60, runSpacing: 40,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              // Card preview
-              GestureDetector(
-                onTap: () => setState(() => _showBack = !_showBack),
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 400),
-                  child: _showBack
-                    ? _SampleIdCardBack(key: const ValueKey('back'))
-                    : _SampleIdCardFront(key: const ValueKey('front')),
-                ),
-              ),
-
-              // Theme selector + info
-              SizedBox(
-                width: 380,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Click card to flip', style: GoogleFonts.poppins(
-                      fontSize: 13, color: AppTheme.grey600)),
-                    const SizedBox(height: 24),
-
-                    for (final feature in [
-                      ('Dual-sided design', Icons.flip, 'Design both front and back separately'),
-                      ('8 built-in themes', Icons.palette, 'Classic, Modern, Royal, Dark and more'),
-                      ('Custom text fields', Icons.text_fields, 'Add any field — bus no, Aadhaar, etc.'),
-                      ('QR code + Barcode', Icons.qr_code, 'Instantly scannable for verification'),
-                      ('Bulk PDF export', Icons.picture_as_pdf, 'Generate all ID cards in one click'),
-                    ])
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Row(children: [
-                          Container(
-                            width: 40, height: 40,
-                            decoration: BoxDecoration(
-                              color: AppTheme.primary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(feature.$2, color: AppTheme.primary, size: 20),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(feature.$1, style: GoogleFonts.poppins(
-                                fontWeight: FontWeight.w600, fontSize: 14)),
-                              Text(feature.$3, style: GoogleFonts.poppins(
-                                fontSize: 12, color: AppTheme.grey600)),
-                            ],
-                          )),
-                        ]),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
       ),
-    );
+    )
+        .animate()
+        .fadeIn(delay: Duration(milliseconds: 180 + widget.delay))
+        .slideY(begin: 0.2);
   }
 }
 
-class _SampleIdCardFront extends StatelessWidget {
-  const _SampleIdCardFront({super.key});
+// ─────────────────────────────────────────────────────────────
+// HOW IT WORKS
+// ─────────────────────────────────────────────────────────────
+class _HowItWorksSection extends StatelessWidget {
+  const _HowItWorksSection();
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 320, height: 200,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: AppTheme.cardGradient,
-        boxShadow: [
-          BoxShadow(color: AppTheme.primary.withOpacity(0.4),
-            blurRadius: 30, offset: const Offset(0, 15)),
-        ],
-      ),
-      child: Column(children: [
-        // Header
-        Container(
-          height: 50,
-          decoration: const BoxDecoration(
-            color: Color(0xFF0D1B63),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Center(child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('DELHI PUBLIC SCHOOL', style: GoogleFonts.poppins(
-                color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
-              Text('R.K. Puram, New Delhi', style: GoogleFonts.poppins(
-                color: Colors.white.withOpacity(0.8), fontSize: 8)),
-            ],
-          )),
-        ),
-
-        // Body
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(children: [
-              // Photo
-              Container(
-                width: 60, height: 75,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.white.withOpacity(0.3)),
-                ),
-                child: const Icon(Icons.person, color: Colors.white70, size: 32),
-              ),
-              const SizedBox(width: 12),
-
-              // Info
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('AARAV SHARMA', style: GoogleFonts.poppins(
-                    color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 4),
-                  _CardField('ID', 'DPS-STU-00001'),
-                  _CardField('Class', '10-A'),
-                  _CardField('Roll', 'R001'),
-                  _CardField('DOB', '15/03/2010'),
-                ],
-              )),
-
-              // QR
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 48, height: 48,
-                    color: Colors.white,
-                    child: const Icon(Icons.qr_code, size: 40, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: 48, height: 16,
-                    decoration: BoxDecoration(
-                      color: Colors.red[700],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                    child: Center(child: Text('A+', style: GoogleFonts.poppins(
-                      color: Colors.white, fontSize: 8, fontWeight: FontWeight.w700))),
-                  ),
-                ],
-              ),
-            ]),
-          ),
-        ),
-
-        // Footer
-        Container(
-          height: 28,
-          decoration: BoxDecoration(
-            color: const Color(0xFF1565C0),
-            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
-          ),
-          child: Center(child: Text('STUDENT IDENTITY CARD  •  AY 2025-26',
-            style: GoogleFonts.poppins(color: Colors.white, fontSize: 8,
-              fontWeight: FontWeight.w500, letterSpacing: 1))),
-        ),
-      ]),
-    );
-  }
-}
-
-class _SampleIdCardBack extends StatelessWidget {
-  const _SampleIdCardBack({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 320, height: 200,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: Colors.white,
-        border: Border.all(color: AppTheme.primary.withOpacity(0.3), width: 2),
-        boxShadow: [
-          BoxShadow(color: AppTheme.primary.withOpacity(0.2),
-            blurRadius: 30, offset: const Offset(0, 15)),
-        ],
-      ),
-      child: Column(children: [
-        Container(
-          height: 30, color: AppTheme.primary,
-          child: Center(child: Text('CONTACT INFORMATION',
-            style: GoogleFonts.poppins(color: Colors.white, fontSize: 9,
-              fontWeight: FontWeight.w600, letterSpacing: 1))),
-        ),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(children: [
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _BackField(Icons.home, 'House No. 42, Sector 5\nNew Delhi - 110022'),
-                  _BackField(Icons.phone, '+91 98100 00001'),
-                  _BackField(Icons.email, 'parent@gmail.com'),
-                  _BackField(Icons.directions_bus, 'Route 7 • Stop: Sector 5'),
-                ],
-              )),
-              Container(
-                width: 80,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.qr_code_2, size: 70, color: AppTheme.grey800),
-                    Text('Scan to Verify', style: GoogleFonts.poppins(
-                      fontSize: 7, color: AppTheme.grey600)),
-                  ],
-                ),
-              ),
-            ]),
-          ),
-        ),
-        Container(
-          height: 26, color: AppTheme.grey100,
-          child: Center(child: Text(
-            'If found, please call +91-11-2617-1002 • dps-rkpuram.edu.in',
-            style: GoogleFonts.poppins(fontSize: 7.5, color: AppTheme.grey600),
-          )),
-        ),
-      ]),
-    );
-  }
-}
-
-class _CardField extends StatelessWidget {
-  final String label, value;
-  const _CardField(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Row(children: [
-        Text('$label: ', style: GoogleFonts.poppins(
-          color: Colors.white60, fontSize: 9)),
-        Text(value, style: GoogleFonts.poppins(
-          color: Colors.white, fontSize: 9, fontWeight: FontWeight.w600)),
-      ]),
-    );
-  }
-}
-
-class _BackField extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _BackField(this.icon, this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Icon(icon, size: 12, color: AppTheme.primary),
-      const SizedBox(width: 6),
-      Expanded(child: Text(text, style: GoogleFonts.poppins(
-        fontSize: 9.5, color: AppTheme.grey800, height: 1.4))),
-    ]);
-  }
-}
-
-// ──────────────────────────────────────────────────────────────
-// Testimonials
-// ──────────────────────────────────────────────────────────────
-class _TestimonialsSection extends StatelessWidget {
-  final testimonials = const [
-    _Testimonial(
-      name: 'Dr. Rajiv Sharma', role: 'Principal, DPS R.K. Puram',
-      text: 'SchoolID Pro transformed how we manage 2000+ students. The parent review via WhatsApp is a game changer. Our teachers save 3 hours daily.',
-      avatar: '👨‍💼', rating: 5,
+  static const _steps = [
+    (
+      '01',
+      'Create your school',
+      'Add school name, logo, branches and org hierarchy in under 5 minutes.',
+      Color(0xFF6C63FF),
     ),
-    _Testimonial(
-      name: 'Mrs. Sunita Agarwal', role: 'Principal, DPS Rohini',
-      text: 'The 8-level org hierarchy perfectly mirrors our school structure. N+1 approval flow is exactly what we needed. Excellent platform!',
-      avatar: '👩‍💼', rating: 5,
+    (
+      '02',
+      'Import students',
+      'Bulk upload via Excel or add individually. Photos and roll numbers auto-assigned.',
+      Color(0xFF00BCD4),
     ),
-    _Testimonial(
-      name: 'Mr. Anil Bhatia', role: 'Principal, DPS Dwarka',
-      text: 'Bulk upload saved us weeks of data entry. The ID card designer lets us create beautiful cards in minutes. Highly recommended!',
-      avatar: '👨‍💼', rating: 5,
+    (
+      '03',
+      'Design ID cards',
+      'Pick a template, customise colours and fields. Preview front + back live.',
+      Color(0xFFFF6584),
+    ),
+    (
+      '04',
+      'Send for parent review',
+      'One click sends review links via WhatsApp. Parents approve or flag changes.',
+      Color(0xFF43A047),
+    ),
+    (
+      '05',
+      'Print or export',
+      'Download print-ready PDFs by class. Bulk or individual. No design tools needed.',
+      Color(0xFFFF9800),
     ),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = ResponsiveBreakpoints.of(context).smallerThan(TABLET);
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 40),
-      color: AppTheme.grey50,
+      padding: EdgeInsets.symmetric(
+          vertical: 100, horizontal: isMobile ? 24 : 80),
+      decoration: BoxDecoration(
+        border: Border(
+            top: BorderSide(
+                color: Colors.white.withValues(alpha: 0.05))),
+      ),
       child: Column(children: [
-        _SectionHeader(
-          tag: 'TESTIMONIALS',
-          title: 'Trusted by School\nLeaders Across India',
-          subtitle: 'Join 500+ schools already using SchoolID Pro',
-        ),
+        _SectionLabel('HOW IT WORKS'),
+        const SizedBox(height: 16),
+        Text('From zero to printed ID cards in one hour',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontSize: isMobile ? 26 : 40,
+                fontWeight: FontWeight.w800)),
         const SizedBox(height: 60),
-        Wrap(
-          spacing: 24, runSpacing: 24,
-          alignment: WrapAlignment.center,
-          children: testimonials.map((t) => _TestimonialCard(t)).toList(),
-        ),
+        isMobile
+            ? Column(
+                children: _steps
+                    .asMap()
+                    .entries
+                    .map((e) => Padding(
+                          padding: const EdgeInsets.only(bottom: 28),
+                          child:
+                              _StepTile(step: e.value, delay: e.key * 100),
+                        ))
+                    .toList(),
+              )
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: _steps
+                    .asMap()
+                    .entries
+                    .map((e) => Expanded(
+                        child: Padding(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 8),
+                          child: _StepTile(
+                              step: e.value, delay: e.key * 100),
+                        )))
+                    .toList(),
+              ),
       ]),
     );
   }
 }
 
-class _Testimonial {
-  final String name, role, text, avatar;
-  final int rating;
-  const _Testimonial({required this.name, required this.role,
-    required this.text, required this.avatar, required this.rating});
-}
-
-class _TestimonialCard extends StatelessWidget {
-  final _Testimonial t;
-  const _TestimonialCard(this.t);
+class _StepTile extends StatelessWidget {
+  final (String, String, String, Color) step;
+  final int delay;
+  const _StepTile({required this.step, required this.delay});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 340,
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Text(t.avatar, style: const TextStyle(fontSize: 36)),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(t.name, style: GoogleFonts.poppins(
-                  fontWeight: FontWeight.w700, fontSize: 14)),
-                Text(t.role, style: GoogleFonts.poppins(
-                  fontSize: 11, color: AppTheme.grey600)),
-              ])),
-            ]),
-            const SizedBox(height: 16),
-            Row(children: List.generate(t.rating, (_) =>
-              const Icon(Icons.star, color: AppTheme.accentLight, size: 16))),
-            const SizedBox(height: 12),
-            Text('"${t.text}"', style: GoogleFonts.poppins(
-              fontSize: 13, color: AppTheme.grey700, height: 1.7,
-              fontStyle: FontStyle.italic)),
-          ]),
-        ),
-      ).animate().fadeIn(delay: 200.ms),
-    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(step.$1,
+            style: GoogleFonts.poppins(
+                color: step.$4,
+                fontSize: 42,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -2)),
+        const SizedBox(height: 12),
+        Text(step.$2,
+            style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 16)),
+        const SizedBox(height: 8),
+        Text(step.$3,
+            style: GoogleFonts.poppins(
+                color: Colors.white.withValues(alpha: 0.42),
+                fontSize: 13,
+                height: 1.65)),
+      ],
+    )
+        .animate()
+        .fadeIn(delay: Duration(milliseconds: 200 + delay))
+        .slideY(begin: 0.2);
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Pricing
-// ──────────────────────────────────────────────────────────────
-class _PricingSection extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────
+// STATS SECTION
+// ─────────────────────────────────────────────────────────────
+class _StatsSection extends StatelessWidget {
+  const _StatsSection();
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 40),
-      decoration: const BoxDecoration(gradient: AppTheme.primaryGradient),
-      child: Column(children: [
-        _SectionHeader(
-          tag: 'PRICING',
-          title: 'Simple, Transparent\nPricing',
-          subtitle: 'No hidden fees. Cancel anytime.',
-          lightTheme: true,
+    final isMobile = ResponsiveBreakpoints.of(context).smallerThan(TABLET);
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+          vertical: 60, horizontal: isMobile ? 24 : 80),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 56, horizontal: 40),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF0D1B63), Color(0xFF006064)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(28),
         ),
-        const SizedBox(height: 60),
-        Wrap(
-          spacing: 24, runSpacing: 24,
-          alignment: WrapAlignment.center,
-          children: [
-            _PriceCard(plan: 'Starter', price: '₹2,999', period: '/year',
-              features: ['1 School', '2 Branches', '500 Students',
-                         '10 Staff', 'Basic ID Themes', 'Email Support'],
-              color: const Color(0xFF1E88E5)),
-            _PriceCard(plan: 'School', price: '₹9,999', period: '/year',
-              features: ['1 School', '10 Branches', '5,000 Students',
-                         'Unlimited Staff', 'All ID Themes', 'WhatsApp + SMS',
-                         'Bulk Upload', 'Priority Support'],
-              color: AppTheme.accentLight, highlighted: true,
-              badge: '🔥 Most Popular'),
-            _PriceCard(plan: 'District', price: '₹29,999', period: '/year',
-              features: ['50 Schools', 'Unlimited Branches', 'Unlimited Students',
-                         'Unlimited Staff', 'Custom Branding', 'API Access',
-                         'Dedicated Manager', 'SLA 99.9%'],
-              color: const Color(0xFF7B1FA2)),
+        child: Wrap(
+          alignment: WrapAlignment.spaceAround,
+          runSpacing: 32,
+          children: const [
+            _StatChip('500+', 'Schools'),
+            _StatChip('2,000+', 'Branches'),
+            _StatChip('5 Lakh+', 'Students'),
+            _StatChip('99.9%', 'Uptime'),
           ],
         ),
-      ]),
-    );
-  }
-}
-
-class _PriceCard extends StatelessWidget {
-  final String plan, price, period;
-  final List<String> features;
-  final Color color;
-  final bool highlighted;
-  final String? badge;
-
-  const _PriceCard({
-    required this.plan, required this.price, required this.period,
-    required this.features, required this.color,
-    this.highlighted = false, this.badge,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 280,
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: highlighted ? Colors.white : Colors.white.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: highlighted ? color : Colors.white.withOpacity(0.15),
-          width: highlighted ? 2 : 1,
-        ),
-        boxShadow: highlighted ? [BoxShadow(
-          color: color.withOpacity(0.3), blurRadius: 30, offset: const Offset(0, 15))] : [],
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (badge != null) ...[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(badge!, style: GoogleFonts.poppins(fontSize: 11,
-              color: highlighted ? color : Colors.white, fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  final String value;
+  final String label;
+  const _StatChip(this.value, this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      Text(value,
+          style: GoogleFonts.poppins(
+              color: Colors.white,
+              fontSize: 44,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -1.5)),
+      const SizedBox(height: 4),
+      Text(label,
+          style: GoogleFonts.poppins(
+              color: Colors.white.withValues(alpha: 0.5),
+              fontSize: 15)),
+    ]).animate().fadeIn(delay: 200.ms).scale(begin: const Offset(0.85, 0.85));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// CTA BANNER
+// ─────────────────────────────────────────────────────────────
+class _CtaBanner extends StatelessWidget {
+  const _CtaBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = ResponsiveBreakpoints.of(context).smallerThan(TABLET);
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+          vertical: 100, horizontal: isMobile ? 24 : 80),
+      child: Column(children: [
+        Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            border: Border.all(
+                color: AppTheme.accentLight.withValues(alpha: 0.4)),
+            borderRadius: BorderRadius.circular(20),
+            color: AppTheme.accentLight.withValues(alpha: 0.06),
           ),
-          const SizedBox(height: 16),
-        ],
-
-        Text(plan, style: GoogleFonts.poppins(
-          fontSize: 18, fontWeight: FontWeight.w700,
-          color: highlighted ? AppTheme.grey900 : Colors.white)),
-        const SizedBox(height: 8),
-
-        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(price, style: GoogleFonts.poppins(
-            fontSize: 36, fontWeight: FontWeight.w800,
-            color: highlighted ? color : Colors.white)),
-          Text(period, style: GoogleFonts.poppins(
-            fontSize: 14, color: highlighted ? AppTheme.grey600 : Colors.white60)),
-        ]),
-
-        const SizedBox(height: 24),
-        Divider(color: highlighted ? AppTheme.grey200 : Colors.white.withOpacity(0.2)),
+          child: Text('No credit card required',
+              style: GoogleFonts.poppins(
+                  color: AppTheme.accentLight,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500)),
+        ),
+        const SizedBox(height: 28),
+        Text('Ready to modernise\nyour school?',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontSize: isMobile ? 32 : 52,
+                fontWeight: FontWeight.w800,
+                height: 1.15)),
         const SizedBox(height: 16),
-
-        for (final f in features)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Row(children: [
-              Icon(Icons.check_circle, size: 16,
-                color: highlighted ? color : Colors.white),
-              const SizedBox(width: 10),
-              Text(f, style: GoogleFonts.poppins(fontSize: 13,
-                color: highlighted ? AppTheme.grey700 : Colors.white.withOpacity(0.85))),
-            ]),
-          ),
-
-        const SizedBox(height: 24),
-        SizedBox(width: double.infinity,
-          child: ElevatedButton(
-            onPressed: () => GoRouter.of(context).go('/login'),
+        Text(
+            'Join 500+ schools already using SchoolID Pro.\nSetup takes less than 10 minutes.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 16,
+                height: 1.6)),
+        const SizedBox(height: 40),
+        Builder(
+          builder: (ctx) => ElevatedButton(
+            onPressed: () => ctx.go('/login'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: highlighted ? color : Colors.white,
-              foregroundColor: highlighted ? Colors.white : AppTheme.primary,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              backgroundColor: AppTheme.secondary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 40, vertical: 18),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+              elevation: 0,
             ),
-            child: Text('Get Started', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
-          )),
+            child: Text('Get started for free',
+                style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w700, fontSize: 16)),
+          ),
+        ),
       ]),
     );
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-// About Section
-// ──────────────────────────────────────────────────────────────
-class _AboutSection extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────
+// FOOTER
+// ─────────────────────────────────────────────────────────────
+class _Footer extends StatelessWidget {
+  const _Footer();
+
   @override
   Widget build(BuildContext context) {
+    final isMobile = ResponsiveBreakpoints.of(context).smallerThan(TABLET);
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 40),
-      color: Colors.white,
-      child: Column(children: [
-        _SectionHeader(
-          tag: 'ABOUT US',
-          title: 'Built for Indian\nSchools by Educators',
-          subtitle: 'SchoolID Pro is developed with deep understanding of CBSE school management',
-        ),
-        const SizedBox(height: 60),
-        Wrap(
-          spacing: 60, runSpacing: 40,
-          alignment: WrapAlignment.center,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            SizedBox(
-              width: 480,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'SchoolID Pro was created to solve a real problem: managing thousands of student ID cards across multiple branches while keeping parents, teachers, and administrators in sync.',
-                    style: GoogleFonts.poppins(fontSize: 15, color: AppTheme.grey700, height: 1.8),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'With an 8-level organizational hierarchy, multi-tenant architecture, and seamless MSG91 integration, we\'ve built the most comprehensive school ID management system in India.',
-                    style: GoogleFonts.poppins(fontSize: 15, color: AppTheme.grey700, height: 1.8),
-                  ),
-                  const SizedBox(height: 32),
-                  Wrap(
-                    spacing: 16, runSpacing: 12,
-                    children: [
-                      _AboutBadge('🏆 5 Years Experience'),
-                      _AboutBadge('🇮🇳 Made in India'),
-                      _AboutBadge('🔒 CBSE Compliant'),
-                      _AboutBadge('☁️ Oracle Cloud Powered'),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            Wrap(
-              spacing: 16, runSpacing: 16,
-              alignment: WrapAlignment.center,
+      padding: EdgeInsets.symmetric(
+          vertical: 52, horizontal: isMobile ? 24 : 80),
+      decoration: BoxDecoration(
+        border: Border(
+            top: BorderSide(
+                color: Colors.white.withValues(alpha: 0.06))),
+      ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _AboutStat('500+', 'Schools'),
-                _AboutStat('5L+', 'Students'),
-                _AboutStat('50K+', 'ID Cards/Day'),
-                _AboutStat('99.9%', 'Uptime SLA'),
+                _buildBrand(),
+                const SizedBox(height: 36),
+                _buildLinks(),
+                const SizedBox(height: 32),
+                _buildCopy(),
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 3, child: _buildBrand()),
+                Expanded(flex: 5, child: _buildLinks()),
               ],
             ),
-          ],
+    );
+  }
+
+  Widget _buildBrand() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            gradient: AppTheme.heroGradient,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.school_rounded,
+              color: Colors.white, size: 20),
         ),
+        const SizedBox(width: 10),
+        Text(AppConstants.appName,
+            style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 16)),
       ]),
-    );
-  }
-}
-
-class _AboutBadge extends StatelessWidget {
-  final String text;
-  const _AboutBadge(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.primary.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
-      ),
-      child: Text(text, style: GoogleFonts.poppins(
-        fontSize: 12, color: AppTheme.primary, fontWeight: FontWeight.w500)),
-    );
-  }
-}
-
-class _AboutStat extends StatelessWidget {
-  final String number, label;
-  const _AboutStat(this.number, this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 130, height: 100,
-      decoration: BoxDecoration(
-        gradient: AppTheme.primaryGradient,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(number, style: GoogleFonts.poppins(
-            fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white)),
-          Text(label, style: GoogleFonts.poppins(
-            fontSize: 12, color: Colors.white.withOpacity(0.8))),
-        ],
-      ),
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────
-// Contact Section
-// ──────────────────────────────────────────────────────────────
-class _ContactSection extends StatelessWidget {
-  final _nameCtrl  = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _phoneCtrl = TextEditingController();
-  final _msgCtrl   = TextEditingController();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 40),
-      color: AppTheme.grey50,
-      child: Column(children: [
-        _SectionHeader(
-          tag: 'CONTACT US',
-          title: 'Get in Touch\nWith Our Team',
-          subtitle: 'We\'re here to help you get started',
-        ),
-        const SizedBox(height: 60),
-        Wrap(
-          spacing: 60, runSpacing: 40,
-          alignment: WrapAlignment.center,
-          children: [
-            // Contact info
-            SizedBox(
-              width: 300,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _ContactInfo(Icons.phone, '+91 98100 00000', 'Call us Mon-Sat, 9AM-6PM'),
-                  const SizedBox(height: 24),
-                  _ContactInfo(Icons.email, 'hello@schoolidpro.in', 'Email anytime'),
-                  const SizedBox(height: 24),
-                  _ContactInfo(Icons.chat, '+91 98100 00001', 'WhatsApp support'),
-                  const SizedBox(height: 24),
-                  _ContactInfo(Icons.location_on, 'New Delhi, India', 'Serving schools nationwide'),
-                ],
-              ),
-            ),
-
-            // Contact form
-            SizedBox(
-              width: 480,
-              child: Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(children: [
-                    Row(children: [
-                      Expanded(child: TextField(
-                        controller: _nameCtrl,
-                        decoration: const InputDecoration(labelText: 'Full Name', prefixIcon: Icon(Icons.person)),
-                      )),
-                      const SizedBox(width: 16),
-                      Expanded(child: TextField(
-                        controller: _phoneCtrl,
-                        decoration: const InputDecoration(labelText: 'Phone', prefixIcon: Icon(Icons.phone)),
-                      )),
-                    ]),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _emailCtrl,
-                      decoration: const InputDecoration(labelText: 'Email Address', prefixIcon: Icon(Icons.email)),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _msgCtrl,
-                      maxLines: 4,
-                      decoration: const InputDecoration(
-                        labelText: 'Message', prefixIcon: Icon(Icons.message),
-                        alignLabelWithHint: true,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Message sent! We\'ll contact you shortly.'),
-                              backgroundColor: AppTheme.success),
-                          );
-                        },
-                        icon: const Icon(Icons.send),
-                        label: const Text('Send Message'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16)),
-                      ),
-                    ),
-                  ]),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ]),
-    );
-  }
-}
-
-class _ContactInfo extends StatelessWidget {
-  final IconData icon;
-  final String title, subtitle;
-  const _ContactInfo(this.icon, this.title, this.subtitle);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(children: [
-      Container(
-        width: 44, height: 44,
-        decoration: BoxDecoration(
-          color: AppTheme.primary.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(icon, color: AppTheme.primary, size: 22),
-      ),
-      const SizedBox(width: 14),
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: GoogleFonts.poppins(
-          fontWeight: FontWeight.w600, fontSize: 14, color: AppTheme.grey900)),
-        Text(subtitle, style: GoogleFonts.poppins(
-          fontSize: 12, color: AppTheme.grey600)),
-      ]),
+      const SizedBox(height: 14),
+      Text('Intelligent school identity\nmanagement for India.',
+          style: GoogleFonts.poppins(
+              color: Colors.white.withValues(alpha: 0.3),
+              fontSize: 13,
+              height: 1.65)),
+      const SizedBox(height: 20),
+      _buildCopy(),
     ]);
   }
+
+  Widget _buildLinks() {
+    return Wrap(
+      spacing: 56,
+      runSpacing: 24,
+      children: [
+        _FooterCol('Product',
+            ['Features', 'Pricing', 'Changelog', 'Roadmap']),
+        _FooterCol('Company', ['About', 'Blog', 'Careers', 'Contact']),
+        _FooterCol('Legal', ['Privacy', 'Terms', 'Security']),
+      ],
+    );
+  }
+
+  Widget _buildCopy() {
+    return Text(
+        '© ${DateTime.now().year} SchoolID Pro. Made in India 🇮🇳',
+        style: GoogleFonts.poppins(
+            color: Colors.white.withValues(alpha: 0.2), fontSize: 12));
+  }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Footer
-// ──────────────────────────────────────────────────────────────
-class _Footer extends StatelessWidget {
+class _FooterCol extends StatelessWidget {
+  final String title;
+  final List<String> links;
+  const _FooterCol(this.title, this.links);
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 40),
-      color: AppTheme.grey900,
-      child: Column(children: [
-        Wrap(
-          spacing: 60, runSpacing: 32,
-          children: [
-            // Brand
-            SizedBox(
-              width: 260,
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Container(
-                    width: 36, height: 36,
-                    decoration: BoxDecoration(
-                      gradient: AppTheme.primaryGradient,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.school, color: Colors.white, size: 20),
-                  ),
-                  const SizedBox(width: 10),
-                  Text('SchoolID Pro', style: GoogleFonts.poppins(
-                    color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                ]),
-                const SizedBox(height: 12),
-                Text('Intelligent School Identity Management System. '
-                     'Built for Indian schools, powered by Oracle Cloud.',
-                  style: GoogleFonts.poppins(
-                    fontSize: 12, color: Colors.white.withOpacity(0.6), height: 1.6)),
-              ]),
-            ),
-
-            // Links
-            for (final col in [
-              ['Product', 'Features', 'Pricing', 'API Docs', 'Changelog'],
-              ['Support', 'Documentation', 'FAQ', 'Contact Us', 'Status Page'],
-              ['Company', 'About', 'Blog', 'Careers', 'Privacy Policy'],
-            ])
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(col[0], style: GoogleFonts.poppins(
-                    color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
-                  const SizedBox(height: 12),
-                  for (final link in col.skip(1))
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(link, style: GoogleFonts.poppins(
-                        fontSize: 13, color: Colors.white.withOpacity(0.6))),
-                    ),
-                ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title,
+            style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 13)),
+        const SizedBox(height: 12),
+        ...links.map((l) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: TextButton(
+                onPressed: () {},
+                style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                child: Text(l,
+                    style: GoogleFonts.poppins(
+                        color: Colors.white.withValues(alpha: 0.3),
+                        fontSize: 13)),
               ),
-          ],
-        ),
-        const SizedBox(height: 32),
-        Divider(color: Colors.white.withOpacity(0.1)),
-        const SizedBox(height: 20),
-        Text('© 2026 SchoolID Pro. Made with ❤️ in India. Running on Oracle Cloud Always Free.',
-          style: GoogleFonts.poppins(fontSize: 12, color: Colors.white.withOpacity(0.4)),
-          textAlign: TextAlign.center),
-      ]),
+            )),
+      ],
     );
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Shared Widgets
-// ──────────────────────────────────────────────────────────────
-class _SectionHeader extends StatelessWidget {
-  final String tag, title;
-  final String? subtitle;
-  final bool lightTheme;
-
-  const _SectionHeader({
-    required this.tag, required this.title,
-    this.subtitle, this.lightTheme = false,
-  });
+// ─────────────────────────────────────────────────────────────
+// SHARED WIDGETS
+// ─────────────────────────────────────────────────────────────
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  const _SectionLabel(this.label);
 
   @override
   Widget build(BuildContext context) {
-    final textColor = lightTheme ? Colors.white : AppTheme.grey900;
-    final subColor  = lightTheme ? Colors.white.withOpacity(0.75) : AppTheme.grey600;
-
-    return Column(children: [
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: lightTheme ? Colors.white.withOpacity(0.15) : AppTheme.primary.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: lightTheme ? Colors.white.withOpacity(0.3) : AppTheme.primary.withOpacity(0.2)),
-        ),
-        child: Text(tag, style: GoogleFonts.poppins(
-          fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 2,
-          color: lightTheme ? Colors.white : AppTheme.primary)),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        border:
+            Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        borderRadius: BorderRadius.circular(20),
       ),
-      const SizedBox(height: 16),
-      Text(title,
-        textAlign: TextAlign.center,
-        style: GoogleFonts.poppins(
-          fontSize: 34, fontWeight: FontWeight.w800, color: textColor, height: 1.3)),
-      if (subtitle != null) ...[
-        const SizedBox(height: 12),
-        Text(subtitle!,
-          textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(fontSize: 16, color: subColor, height: 1.5)),
-      ],
-    ]).animate().fadeIn(delay: 100.ms).slideY(begin: 0.2);
+      child: Text(label,
+          style: GoogleFonts.poppins(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 11,
+              letterSpacing: 2.5,
+              fontWeight: FontWeight.w600)),
+    );
   }
-}
-
-class _ResponsiveGrid extends StatelessWidget {
-  final int columns;
-  final List<Widget> children;
-
-  const _ResponsiveGrid({required this.columns, required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = <Widget>[];
-    for (var i = 0; i < children.length; i += columns) {
-      rows.add(Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var j = i; j < (i + columns).clamp(0, children.length); j++)
-            Expanded(child: Padding(
-              padding: const EdgeInsets.all(8), child: children[j])),
-          if ((i + columns) > children.length)
-            for (var k = 0; k < (i + columns - children.length); k++)
-              const Expanded(child: SizedBox()),
-        ],
-      ));
-    }
-    return Column(children: rows);
-  }
-}
-
-class _GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withOpacity(0.04)
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
-
-    const spacing = 40.0;
-    for (var x = 0.0; x < size.width; x += spacing) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (var y = 0.0; y < size.height; y += spacing) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_) => false;
 }
