@@ -13,7 +13,7 @@ import '../../providers/auth_provider.dart';
 // ── Providers ─────────────────────────────────────────────────
 final inboxProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
   final resp = await ApiService().get('/messaging');
-  return resp['data'] as List<dynamic>;
+  return (resp['data'] as List<dynamic>?) ?? [];
 });
 
 // ── Screen ────────────────────────────────────────────────────
@@ -111,26 +111,70 @@ class _NewQueryDialog extends ConsumerStatefulWidget {
 
 class _NewQueryDialogState extends ConsumerState<_NewQueryDialog> {
   final _formKey = GlobalKey<FormState>();
-  String? _studentId; // In a full app, fetch parent's students
-  String? _subject;
-  String? _employeeId; // In a full app, map teachers to students
+  
+  List<dynamic> _students = [];
+  Map<String, dynamic>? _selectedStudent;
+  
+  List<dynamic> _employees = [];
+  String? _selectedEmployeeId;
+  
   final _subjectCtrl = TextEditingController();
   final _msgCtrl = TextEditingController();
+  bool _loading = true;
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitial();
+  }
+
+  Future<void> _loadInitial() async {
+    try {
+      final resp = await ApiService().get('/parent/students');
+      if (!mounted) return;
+      setState(() {
+        _students = (resp['data'] as List<dynamic>?) ?? [];
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadEmployees(String schoolId, String? branchId) async {
+    try {
+      setState(() => _employees = []);
+      final resp = await ApiService().get('/employees', params: {
+        'school_id': schoolId,
+        if (branch_id != null) 'branch_id': branchId,
+      });
+      if (!mounted) return;
+      setState(() {
+        _employees = (resp['data'] as List<dynamic>?) ?? [];
+      });
+    } catch (e) {
+      debugPrint('Error loading employees: $e');
+    }
+  }
 
   void _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_employeeId == null) {
+    if (_selectedStudent == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a student')));
+      return;
+    }
+    if (_selectedEmployeeId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a recipient / teacher')));
       return;
     }
     setState(() => _saving = true);
     try {
-      // Hardcoded student/school for demo, in real app derive from Parent profile
       final body = {
-        'school_id':   'TODO_GET_SCHOOL_ID',
-        'student_id':  'TODO_GET_CHILD_ID',
-        'employee_id': _employeeId,
+        'school_id':   _selectedStudent!['school_id'],
+        'student_id':  _selectedStudent!['id'],
+        'employee_id': _selectedEmployeeId,
         'subject':     _subjectCtrl.text.trim(),
         'message':     _msgCtrl.text.trim(),
       };
@@ -147,41 +191,67 @@ class _NewQueryDialogState extends ConsumerState<_NewQueryDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('New Query'),
-      content: SizedBox(
+      content: _loading 
+        ? const SizedBox(height: 100, child: Center(child: CircularProgressIndicator()))
+        : SizedBox(
         width: 400,
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // MOCK Teacher Selection
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Send To'),
-                items: const [
-                  DropdownMenuItem(value: 'EMP_123', child: Text('Class Teacher')),
-                  DropdownMenuItem(value: 'EMP_456', child: Text('Transport Admin')),
-                ],
-                onChanged: (v) => _employeeId = v,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _subjectCtrl,
-                decoration: const InputDecoration(labelText: 'Subject / Category'),
-                validator: (v) => v!.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _msgCtrl,
-                maxLines: 4,
-                decoration: const InputDecoration(labelText: 'Your Message'),
-                validator: (v) => v!.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Note: Teachers generally reply during school office hours (8AM - 4PM).',
-                style: GoogleFonts.poppins(fontSize: 10, color: AppTheme.grey600),
-              ),
-            ],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Student Selection
+                DropdownButtonFormField<Map<String, dynamic>>(
+                  decoration: const InputDecoration(labelText: 'Select Student (Child)'),
+                  items: _students.map((s) => DropdownMenuItem(
+                    value: s as Map<String, dynamic>,
+                    child: Text('${s['first_name']} ${s['last_name']} (${s['class_name']}${s['section']})'),
+                  )).toList(),
+                  onChanged: (v) {
+                    setState(() {
+                      _selectedStudent = v;
+                      _selectedEmployeeId = null;
+                    });
+                    if (v != null) {
+                      _loadEmployees(v['school_id'], v['branch_id']);
+                    }
+                  },
+                  validator: (v) => v == null ? 'Required' : null,
+                ),
+                const SizedBox(height: 16),
+                // Teacher / Employee Selection
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: 'Send To'),
+                  value: _selectedEmployeeId,
+                  items: _employees.map((e) => DropdownMenuItem(
+                    value: e['id'] as String,
+                    child: Text('${e['first_name']} ${e['last_name']} (${e['role_name']})'),
+                  )).toList(),
+                  onChanged: (v) => setState(() => _selectedEmployeeId = v),
+                  validator: (v) => v == null ? 'Required' : null,
+                  disabledHint: const Text('Select a student first'),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _subjectCtrl,
+                  decoration: const InputDecoration(labelText: 'Subject / Category'),
+                  validator: (v) => v!.isEmpty ? 'Required' : null,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _msgCtrl,
+                  maxLines: 4,
+                  decoration: const InputDecoration(labelText: 'Your Message'),
+                  validator: (v) => v!.isEmpty ? 'Required' : null,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Note: Teachers generally reply during school office hours (8AM - 4PM).',
+                  style: GoogleFonts.poppins(fontSize: 10, color: AppTheme.grey600),
+                ),
+              ],
+            ),
           ),
         ),
       ),

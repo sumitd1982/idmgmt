@@ -19,14 +19,18 @@ router.get('/', authenticate, async (req, res, next) => {
     if (include_inactive !== 'true') where.push('e.is_active = TRUE');
     // By default hide hidden employees; pass include_hidden=true to show them
     if (include_hidden !== 'true') where.push('(e.is_hidden IS NULL OR e.is_hidden = FALSE)');
-    const sid = school_id || req.employee?.school_id;
+
+    // Security: Only super_admin can override the school context
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (school_id || req.employee?.school_id) 
+      : req.employee?.school_id;
 
     // Non-super_admin with no school context sees nothing
-    if (req.user.role !== 'super_admin' && !sid) {
+    if (req.user.role !== 'super_admin' && !effectiveSchoolId) {
       return res.json({ success: true, data: [] });
     }
 
-    if (sid)         { where.push('e.school_id = ?');    params.push(sid); }
+    if (effectiveSchoolId) { where.push('e.school_id = ?');    params.push(effectiveSchoolId); }
     if (branch_id)   { where.push('e.branch_id = ?');    params.push(branch_id); }
     if (org_role_id) { where.push('e.org_role_id = ?');  params.push(org_role_id); }
     if (reports_to)  { where.push('e.reports_to_emp_id = ?'); params.push(reports_to); }
@@ -78,7 +82,9 @@ router.post('/', authenticate, requireRole('super_admin','principal','vp','head_
       qualification, specialization, experience_years, assigned_classes, is_temp, extra_roles } = req.body;
 
     // Auto-resolve school_id from employee context if not provided
-    const effectiveSchoolId = req.body.school_id || req.employee?.school_id;
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (req.body.school_id || req.employee?.school_id) 
+      : req.employee?.school_id;
     const effectiveBranchId = branch_id || req.employee?.branch_id;
 
     if (!effectiveSchoolId) {
@@ -197,6 +203,16 @@ router.get('/bulk-template/download', authenticate, async (req, res, next) => {
 // Org tree
 router.get('/org-tree/:school_id', authenticate, async (req, res, next) => {
   try {
+    const schoolId = req.params.school_id;
+    // Security: Only super_admin can override the school context
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (schoolId || req.employee?.school_id) 
+      : req.employee?.school_id;
+
+    if (!effectiveSchoolId || (req.user.role !== 'super_admin' && effectiveSchoolId !== schoolId)) {
+        // Handle mismatch or empty context
+    }
+
     const employees = await query(
       `SELECT e.id, e.employee_id, e.first_name, e.last_name, e.photo_url,
               e.reports_to_emp_id, r.name AS role_name, r.level AS role_level,
@@ -205,7 +221,7 @@ router.get('/org-tree/:school_id', authenticate, async (req, res, next) => {
        JOIN org_roles r ON r.id = e.org_role_id
        LEFT JOIN branches b ON b.id = e.branch_id
        WHERE e.school_id = ? AND e.is_active = TRUE
-       ORDER BY r.level, e.last_name`, [req.params.school_id]
+       ORDER BY r.level, e.last_name`, [effectiveSchoolId]
     );
 
     // Build tree

@@ -87,28 +87,58 @@ router.post('/otp/verify', async (req, res, next) => {
     }
 
     const isSuperAdmin = isSuperAdminPhone(phone);
-    const roleForPhone = isSuperAdmin ? 'super_admin' : 'viewer';
-    logger.info(`[LOGIN] Role assigned — phone: ${mobile}, role: ${roleForPhone}`);
+    const last10 = mobile.slice(-10);
 
     // Find or create user by phone
     let [user] = await query('SELECT * FROM users WHERE phone = ? LIMIT 1', [phone]);
+    let newUser = false;
+
     if (!user) {
+      newUser = true;
       const id = uuid();
-      logger.info(`[LOGIN] New user created via phone — phone: ${mobile}, role: ${roleForPhone}`);
+      const role = isSuperAdmin ? 'super_admin' : 'viewer';
+      logger.info(`[LOGIN] New user creation — phone: ${mobile}, role: ${role}`);
       await query(
         `INSERT INTO users (id, phone, full_name, display_name, role) VALUES (?, ?, ?, ?, ?)`,
-        [id, phone, '', '', roleForPhone]
+        [id, phone, '', '', role]
       );
       [user] = await query('SELECT * FROM users WHERE id = ?', [id]);
-      logger.info(`[LOGIN] New user saved — id: ${id}, phone: ${mobile}`);
-    } else if (isSuperAdmin && user.role !== 'super_admin') {
-      // Upgrade to super_admin if this is a designated super admin phone
-      logger.info(`[LOGIN] Upgrading user to super_admin — phone: ${mobile}, userId: ${user.id}`);
-      await query('UPDATE users SET role = ? WHERE id = ?', ['super_admin', user.id]);
-      [user] = await query('SELECT * FROM users WHERE id = ?', [user.id]);
-    } else {
-      logger.info(`[LOGIN] Existing user login — phone: ${mobile}, userId: ${user.id}, role: ${user.role}`);
     }
+
+    // Role Promotion / Linking Logic
+    if (isSuperAdmin && user.role !== 'super_admin') {
+      logger.info(`[LOGIN] SuperAdmin upgrade — phone: ${mobile}`);
+      await query('UPDATE users SET role = ? WHERE id = ?', ['super_admin', user.id]);
+      user.role = 'super_admin';
+    } else if (user.role === 'viewer') {
+      // Check if employee
+      const [emp] = await query(
+        `SELECT e.id, r.code as role_code FROM employees e 
+         JOIN org_roles r ON r.id = e.org_role_id
+         WHERE e.phone LIKE ? OR e.phone LIKE ? LIMIT 1`,
+        [`%${last10}`, last10]
+      );
+
+      if (emp) {
+        logger.info(`[LOGIN] Employee found mirroring phone — linking userId: ${user.id} to empId: ${emp.id}`);
+        await query('UPDATE employees SET user_id = ? WHERE id = ?', [user.id, emp.id]);
+        await query('UPDATE users SET role = ? WHERE id = ?', [emp.role_code, user.id]);
+        user.role = emp.role_code;
+      } else {
+        // Check if guardian (parent)
+        const [guardian] = await query(
+          'SELECT id FROM guardians WHERE phone LIKE ? OR phone LIKE ? LIMIT 1',
+          [`%${last10}`, last10]
+        );
+        if (guardian) {
+          logger.info(`[LOGIN] Guardian found mirroring phone — promoting user to parent`);
+          await query('UPDATE users SET role = ? WHERE id = ?', ['parent', user.id]);
+          user.role = 'parent';
+        }
+      }
+    }
+
+    logger.info(`[LOGIN] Final role — phone: ${mobile}, userId: ${user.id}, role: ${user.role}`);
 
     const token = jwt.sign({ userId: user.id, phone }, JWT_SECRET, { expiresIn: '30d' });
     logger.info(`[LOGIN] Login SUCCESS — phone: ${mobile}, userId: ${user.id}, role: ${user.role}`);

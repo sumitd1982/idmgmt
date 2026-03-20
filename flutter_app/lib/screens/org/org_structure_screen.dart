@@ -9,6 +9,7 @@ import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../services/api_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/school_provider.dart';
 
 // ── Models ────────────────────────────────────────────────────
 class OrgNode {
@@ -120,8 +121,9 @@ final _orgTreeProvider = FutureProvider.family<List<OrgNode>, String?>(
   }
 });
 
-final _selectedNodeProvider  = StateProvider<OrgNode?>((ref) => null);
-final _orgSchoolFilterProvider = StateProvider<String?>((ref) => null);
+final _selectedNodeProvider   = StateProvider<OrgNode?>((ref) => null);
+final _orgBranchFilterProvider = StateProvider<String?>((ref) => null);
+final _orgSchoolSelectorProvider = StateProvider<String?>((ref) => null);
 
 // ── Screen ────────────────────────────────────────────────────
 class OrgStructureScreen extends ConsumerWidget {
@@ -129,16 +131,21 @@ class OrgStructureScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final schoolFilter = ref.watch(_orgSchoolFilterProvider);
-    final treeAsync    = ref.watch(_orgTreeProvider(schoolFilter));
-    final selected     = ref.watch(_selectedNodeProvider);
+    final user          = ref.watch(authNotifierProvider).valueOrNull;
+    final selectedSchool = ref.watch(_orgSchoolSelectorProvider) ?? user?.employee?.schoolId;
+    final branchFilter   = ref.watch(_orgBranchFilterProvider);
+    final treeAsync      = ref.watch(_orgTreeProvider(selectedSchool));
+    final selected       = ref.watch(_selectedNodeProvider);
 
     return Scaffold(
       backgroundColor: AppTheme.grey50,
       body: Column(
         children: [
           // Toolbar
-          _OrgToolbar(branchFilter: schoolFilter),
+          _OrgToolbar(
+            selectedSchoolId: selectedSchool,
+            selectedBranchId: branchFilter,
+          ),
           // Level legend
           _LevelLegend(),
           // Main content
@@ -169,8 +176,10 @@ class OrgStructureScreen extends ConsumerWidget {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {},
-        icon:  const Icon(Icons.person_add),
+        onPressed: () => context.push(
+          '/employees/new?schoolId=${selectedSchoolId ?? ''}&branchId=${branchFilter ?? ''}',
+        ),
+        icon: const Icon(Icons.person_add),
         label: const Text('Add Employee'),
       ).animate().scale(delay: 300.ms),
     );
@@ -179,11 +188,17 @@ class OrgStructureScreen extends ConsumerWidget {
 
 // ── Toolbar ───────────────────────────────────────────────────
 class _OrgToolbar extends ConsumerWidget {
-  final String? branchFilter;
-  const _OrgToolbar({this.branchFilter});
+  final String? selectedSchoolId;
+  final String? selectedBranchId;
+  const _OrgToolbar({this.selectedSchoolId, this.selectedBranchId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authNotifierProvider).valueOrNull;
+    final isSuper = user?.role == 'super_admin';
+    final schoolsAsync = ref.watch(allSchoolsProvider);
+    final branchesAsync = ref.watch(branchesProvider(selectedSchoolId));
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       color: Colors.white,
@@ -195,25 +210,53 @@ class _OrgToolbar extends ConsumerWidget {
               style: GoogleFonts.poppins(
                   fontWeight: FontWeight.w600, fontSize: 14)),
           const SizedBox(width: 24),
-          SizedBox(
-            width: 200,
-            child: DropdownButtonFormField<String>(
-              value: branchFilter,
-              hint: const Text('All Branches'),
-              isDense: true,
-              decoration: const InputDecoration(
-                isDense: true,
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-              items: [
-                const DropdownMenuItem<String>(value: null, child: Text('All Branches')),
-                ...['Main Branch', 'East Campus', 'West Campus'].map(
-                  (b) => DropdownMenuItem(value: b, child: Text(b)),
+          
+          // School Selector (SuperAdmin only)
+          if (isSuper) ...[
+            SizedBox(
+              width: 180,
+              child: schoolsAsync.when(
+                data: (schools) => DropdownButtonFormField<String>(
+                  value: selectedSchoolId,
+                  hint: const Text('Select School'),
+                  isDense: true,
+                  decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.all(8)),
+                  items: schools.map((s) => DropdownMenuItem(
+                    value: s['id'] as String,
+                    child: Text(s['name'] as String, overflow: TextOverflow.ellipsis),
+                  )).toList(),
+                  onChanged: (v) {
+                    ref.read(_orgSchoolSelectorProvider.notifier).state = v;
+                    ref.read(_orgBranchFilterProvider.notifier).state = null;
+                  },
                 ),
-              ],
-              onChanged: (v) =>
-                  ref.read(_orgSchoolFilterProvider.notifier).state = v,
+                loading: () => const LinearProgressIndicator(),
+                error:   (_, __) => const Text('Error'),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+
+          // Branch Filter
+          SizedBox(
+            width: 180,
+            child: branchesAsync.when(
+              data: (branches) => DropdownButtonFormField<String>(
+                value: selectedBranchId,
+                hint: const Text('All Branches'),
+                isDense: true,
+                decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.all(8)),
+                items: [
+                  const DropdownMenuItem<String>(value: null, child: Text('All Branches')),
+                  ...branches.map((b) => DropdownMenuItem(
+                    value: b['id'] as String,
+                    child: Text(b['name'] as String, overflow: TextOverflow.ellipsis),
+                  )),
+                ],
+                onChanged: (v) => ref.read(_orgBranchFilterProvider.notifier).state = v,
+              ),
+              loading: () => const CircularProgressIndicator(strokeWidth: 2),
+              error:   (_, __) => const Text('No Branches'),
             ),
           ),
           const Spacer(),
@@ -575,8 +618,8 @@ class _NodeDetailPanel extends ConsumerWidget {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () {},
-                    icon:  const Icon(Icons.edit_outlined, size: 14),
+                    onPressed: () => context.push('/employees/${node.id}'),
+                    icon: const Icon(Icons.edit_outlined, size: 14),
                     label: const Text('Edit'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -587,8 +630,10 @@ class _NodeDetailPanel extends ConsumerWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () {},
-                    icon:  const Icon(Icons.person_add_alt_1, size: 14),
+                    onPressed: () => context.push(
+                      '/employees/new?schoolId=${selectedSchoolId ?? ''}&reportsTo=${node.id}',
+                    ),
+                    icon: const Icon(Icons.person_add_alt_1, size: 14),
                     label: const Text('Add Report'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.primary,

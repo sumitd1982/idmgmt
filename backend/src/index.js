@@ -79,7 +79,7 @@ const apiLimiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100, // Increased for testing
+  max: 10000, // Significantly increased for testing all roles (Staff/Parent/SuperAdmin)
   skip: (req) => {
     const phone = req.body.phone?.replace(/\D/g, '') || '';
     const superAdminSfx = ['8826756777', '9818190050', '98181190050'];

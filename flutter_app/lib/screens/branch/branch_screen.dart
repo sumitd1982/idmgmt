@@ -9,6 +9,8 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:typed_data';
 import '../../config/theme.dart';
 import '../../services/api_service.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/school_provider.dart';
 
 // ── Models ────────────────────────────────────────────────────
 class BranchItem {
@@ -108,15 +110,26 @@ class BranchItem {
 }
 
 // ── Providers ─────────────────────────────────────────────────
+final _branchSchoolFilterProvider = StateProvider<String?>((ref) => null);
+
 final _branchesProvider = FutureProvider<List<BranchItem>>((ref) async {
+  final sid = ref.watch(_branchSchoolFilterProvider);
+  final user = ref.watch(authNotifierProvider).valueOrNull;
+  
+  // Use session school if not superadmin and no filter
+  final effectiveSid = sid ?? (user?.role != 'super_admin' ? user?.employee?.schoolId : null);
+
   try {
-    final data = await ApiService().get('/branches');
+    final params = <String, dynamic>{};
+    if (effectiveSid != null) params['school_id'] = effectiveSid;
+
+    final data = await ApiService().get('/branches', params: params);
     final list = data['data'] as List<dynamic>? ?? [];
     return list
         .map((e) => BranchItem.fromJson(e as Map<String, dynamic>))
         .toList();
   } catch (_) {
-    return BranchItem.mockList();
+    return [];
   }
 });
 
@@ -177,9 +190,10 @@ class BranchScreen extends ConsumerWidget {
   }
 
   void _showForm(BuildContext context, WidgetRef ref, BranchItem? branch) {
+    final sid = ref.read(_branchSchoolFilterProvider) ?? '';
     ref.read(_editBranchProvider.notifier).state =
-        branch ?? const BranchItem(
-          id: '', schoolId: '', schoolName: '', name: '', code: '',
+        branch ?? BranchItem(
+          id: '', schoolId: sid, schoolName: '', name: '', code: '',
           address: '', city: '', phone: '', email: '',
           studentCount: 0, employeeCount: 0, isActive: true,
         );
@@ -202,21 +216,35 @@ class _BranchList extends StatelessWidget {
             Text('Branches (${branches.length})',
                 style: GoogleFonts.poppins(
                     fontWeight: FontWeight.w600, fontSize: 15)),
-            const Spacer(),
-            // School filter (placeholder)
-            SizedBox(
-              width: 200,
-              child: DropdownButtonFormField<String>(
-                hint: const Text('Filter by School'),
-                isDense: true,
-                decoration: const InputDecoration(isDense: true),
-                items: const [
-                  DropdownMenuItem(
-                      value: 'all', child: Text('All Schools'))
-                ],
-                onChanged: (_) {},
-              ),
-            ),
+            // School filter for SuperAdmin
+            Consumer(builder: (ctx, ref, _) {
+              final user = ref.watch(authNotifierProvider).valueOrNull;
+              if (user?.role != 'super_admin') return const SizedBox.shrink();
+              final schoolsAsync = ref.watch(allSchoolsProvider);
+              final selected     = ref.watch(_branchSchoolFilterProvider);
+
+              return SizedBox(
+                width: 220,
+                child: schoolsAsync.when(
+                  data: (schools) => DropdownButtonFormField<String>(
+                    value: selected,
+                    hint: const Text('Filter by School'),
+                    isDense: true,
+                    decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.all(8)),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('All Schools')),
+                      ...schools.map((s) => DropdownMenuItem(
+                        value: s['id'] as String,
+                        child: Text(s['name'] as String, overflow: TextOverflow.ellipsis),
+                      )),
+                    ],
+                    onChanged: (v) => ref.read(_branchSchoolFilterProvider.notifier).state = v,
+                  ),
+                  loading: () => const LinearProgressIndicator(),
+                  error:   (_, __) => const Text('Error'),
+                ),
+              );
+            }),
           ],
         ),
         const SizedBox(height: 14),

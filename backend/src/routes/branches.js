@@ -8,14 +8,18 @@ router.get('/', authenticate, async (req, res, next) => {
     const { school_id, city, country, search } = req.query;
     let where = ['b.is_active = TRUE'];
     let params = [];
-    const sid = school_id || req.employee?.school_id;
+    
+    // Security: Only super_admin can override the school context via query params
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (school_id || req.employee?.school_id) 
+      : req.employee?.school_id;
 
     // Non-super_admin with no school context sees nothing
-    if (req.user.role !== 'super_admin' && !sid) {
+    if (req.user.role !== 'super_admin' && !effectiveSchoolId) {
       return res.json({ success: true, data: [] });
     }
 
-    if (sid)    { where.push('b.school_id = ?'); params.push(sid); }
+    if (effectiveSchoolId) { where.push('b.school_id = ?'); params.push(effectiveSchoolId); }
     if (city)   { where.push('b.city = ?');      params.push(city); }
     if (country){ where.push('b.country = ?');   params.push(country); }
     if (search) { where.push('b.name LIKE ?');   params.push(`%${search}%`); }
@@ -44,8 +48,10 @@ router.post('/', authenticate, requireRole('super_admin','principal','vp'), asyn
 
     // Accept 'code' or 'branch_code' from frontend
     const code = req.body.code || req.body.branch_code;
-    // Use provided school_id or fall back to employee's school
-    const effectiveSchoolId = req.body.school_id || req.employee?.school_id;
+    // Security: Only super_admin can specify a school_id for other schools
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (req.body.school_id || req.employee?.school_id) 
+      : req.employee?.school_id;
 
     if (!effectiveSchoolId) {
       return res.status(422).json({ success: false, message: 'school_id is required' });

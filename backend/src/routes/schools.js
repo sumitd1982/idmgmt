@@ -81,7 +81,7 @@ router.get('/:id', authenticate, async (req, res, next) => {
 // ── POST /schools — create school ────────────────────────────
 router.post('/',
   authenticate,
-  requireRole('super_admin', 'principal', 'vp'),
+  requireRole('super_admin'),
   [
     body('name').notEmpty().trim().isLength({ max: 255 }),
     body('code').notEmpty().trim().toUpperCase().isAlphanumeric().isLength({ max: 20 }),

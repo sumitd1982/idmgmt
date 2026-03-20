@@ -294,4 +294,26 @@ router.post('/reviews/:id/approve', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /parent/students — Parent: get their children ──────
+router.get('/students', authenticate, async (req, res, next) => {
+  try {
+    const phone = req.user.phone;
+    if (!phone) return res.json({ success: true, data: [] });
+
+    const last10 = phone.replace(/\D/g, '').slice(-10);
+
+    const students = await query(
+      `SELECT s.*, sch.name AS school_name, b.name AS branch_name
+       FROM students s
+       JOIN guardians g ON g.student_id = s.id
+       JOIN schools sch ON sch.id = s.school_id
+       JOIN branches b ON b.id = s.branch_id
+       WHERE g.phone LIKE ? OR g.phone LIKE ?`,
+      [`%${last10}`, last10]
+    );
+
+    res.json({ success: true, data: students });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

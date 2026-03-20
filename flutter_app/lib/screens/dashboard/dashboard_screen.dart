@@ -22,6 +22,7 @@ class _DashboardStats {
   final int redCount;
   final int totalEmployees;
   final int totalBranches;
+  final int totalSchools;
 
   const _DashboardStats({
     required this.totalStudents,
@@ -30,6 +31,7 @@ class _DashboardStats {
     required this.redCount,
     required this.totalEmployees,
     required this.totalBranches,
+    required this.totalSchools,
   });
 
   factory _DashboardStats.fromJson(Map<String, dynamic> j) {
@@ -41,6 +43,7 @@ class _DashboardStats {
       redCount:       (data['students_pending']  as num?)?.toInt() ?? 0,
       totalEmployees: (data['employees']         as num?)?.toInt() ?? 0,
       totalBranches:  (data['branches']          as num?)?.toInt() ?? 0,
+      totalSchools:   (data['schools']           as num?)?.toInt() ?? 0,
     );
   }
 
@@ -51,6 +54,7 @@ class _DashboardStats {
         redCount:       0,
         totalEmployees: 0,
         totalBranches:  0,
+        totalSchools:   0,
       );
 }
 
@@ -153,6 +157,10 @@ class DashboardScreen extends ConsumerWidget {
 
               // Stats row
               _StatsRow(),
+              const SizedBox(height: 24),
+
+              // Onboarding Guide (if no schools found)
+              _OnboardingGuide(),
               const SizedBox(height: 24),
 
               // Main content
@@ -343,6 +351,15 @@ class _StatsRow extends ConsumerWidget {
               colors: [Color(0xFF00695C), Color(0xFF00897B)],
             ),
           ),
+          if (ref.read(authNotifierProvider).valueOrNull?.role == 'super_admin')
+            _StatCardData(
+              label:    'Total Schools',
+              value:    stats.totalSchools,
+              icon:     Icons.home_work,
+              gradient: const LinearGradient(
+                colors: [Color(0xFFE65100), Color(0xFFFB8C00)],
+              ),
+            ),
         ];
 
         return LayoutBuilder(
@@ -857,6 +874,166 @@ class _NotificationFeed extends StatelessWidget {
         ),
       ),
     ).animate().fadeIn(delay: 500.ms, duration: 400.ms);
+  }
+}
+
+// ── Onboarding Guide ──────────────────────────────────────────
+class _OnboardingGuide extends ConsumerWidget {
+  const _OnboardingGuide();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final statsAsync = ref.watch(_dashboardStatsProvider);
+    
+    return statsAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (stats) {
+        // Only show if user has no schools
+        if (stats.totalSchools > 0) return const SizedBox.shrink();
+
+        return Card(
+          elevation: 0,
+          color: AppTheme.primary.withOpacity(0.05),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(color: AppTheme.primary.withOpacity(0.1))),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.auto_awesome, color: AppTheme.primary),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Institution Setup Guide',
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Follow these steps to get your institution management system up and running.',
+                  style: GoogleFonts.poppins(fontSize: 13, color: AppTheme.grey700),
+                ),
+                const SizedBox(height: 24),
+                _OnboardingStep(
+                  number: 1,
+                  title: 'Create Your School',
+                  subtitle: 'Register your main institution details, logo, and banner.',
+                  icon: Icons.school_outlined,
+                  isDone: stats.totalSchools > 0,
+                  onTap: () => context.go('/schools/new'),
+                ),
+                _OnboardingStep(
+                  number: 2,
+                  title: 'Add Branches',
+                  subtitle: 'Define your campuses or distinct units (if any).',
+                  icon: Icons.account_tree_outlined,
+                  isDone: stats.totalBranches > 0,
+                  onTap: () => context.go('/branches'),
+                ),
+                _OnboardingStep(
+                  number: 3,
+                  title: 'Define Organization Structure',
+                  subtitle: 'Set up hierarchy and roles (Principal, Teachers).',
+                  icon: Icons.hub_outlined,
+                  isDone: false, 
+                  onTap: () => context.go('/org-structure'),
+                ),
+                _OnboardingStep(
+                  number: 4,
+                  title: 'Onboard Staff & Students',
+                  subtitle: 'Perform bulk uploads or add individual records.',
+                  icon: Icons.people_outline,
+                  isDone: stats.totalEmployees > 0,
+                  onTap: () => context.go('/employees'),
+                ),
+              ],
+            ),
+          ),
+        ).animate().fadeIn().slideY(begin: 0.1);
+      },
+    );
+  }
+}
+
+class _OnboardingStep extends StatelessWidget {
+  final int number;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool isDone;
+  final VoidCallback onTap;
+
+  const _OnboardingStep({
+    required this.number,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.isDone,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: isDone ? AppTheme.statusGreen.withOpacity(0.3) : AppTheme.grey200),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(
+                  color: isDone ? AppTheme.statusGreen.withOpacity(0.1) : AppTheme.grey100,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isDone ? Icons.check : icon,
+                  color: isDone ? AppTheme.statusGreen : AppTheme.grey600,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: isDone ? AppTheme.grey600 : AppTheme.grey900),
+                    ),
+                    Text(
+                      subtitle,
+                      style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios, size: 14, color: AppTheme.grey400),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

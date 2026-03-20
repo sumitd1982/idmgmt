@@ -20,7 +20,7 @@ class SchoolItem {
   final String phone;
   final String email;
   final int branchCount;
-  final int studentCount;
+  final int employeeCount;
 
   const SchoolItem({
     required this.id,
@@ -32,20 +32,20 @@ class SchoolItem {
     required this.phone,
     required this.email,
     required this.branchCount,
-    required this.studentCount,
+    required this.employeeCount,
   });
 
   factory SchoolItem.fromJson(Map<String, dynamic> j) => SchoolItem(
         id:           j['id']            as String,
         name:         j['name']          as String? ?? '',
-        code:         j['school_code']   as String? ?? '',
+        code:         j['code']          as String? ?? '',
         logoUrl:      j['logo_url']      as String?,
         city:         j['city']          as String? ?? '',
         state:        j['state']         as String? ?? '',
-        phone:        j['phone']         as String? ?? '',
+        phone:        j['phone1']        as String? ?? '',
         email:        j['email']         as String? ?? '',
         branchCount:  (j['branch_count'] as num?)?.toInt() ?? 0,
-        studentCount: (j['student_count'] as num?)?.toInt() ?? 0,
+        employeeCount:(j['employee_count'] as num?)?.toInt() ?? 0,
       );
 
   static List<SchoolItem> mockList() => [
@@ -58,7 +58,7 @@ class SchoolItem {
           phone:        '+91 11 1234 5678',
           email:        'info@greenvalley.edu.in',
           branchCount:  3,
-          studentCount: 1248,
+          employeeCount: 1248,
         ),
         const SchoolItem(
           id:           's2',
@@ -69,7 +69,7 @@ class SchoolItem {
           phone:        '+91 22 9876 5432',
           email:        'contact@blueridge.edu.in',
           branchCount:  2,
-          studentCount: 867,
+          employeeCount: 867,
         ),
         const SchoolItem(
           id:           's3',
@@ -80,7 +80,7 @@ class SchoolItem {
           phone:        '+91 80 2345 6789',
           email:        'admin@sunrise.edu.in',
           branchCount:  5,
-          studentCount: 2134,
+          employeeCount: 2134,
         ),
         const SchoolItem(
           id:           's4',
@@ -91,7 +91,7 @@ class SchoolItem {
           phone:        '+91 44 3456 7890',
           email:        'heritage@school.in',
           branchCount:  1,
-          studentCount: 432,
+          employeeCount: 432,
         ),
       ];
 }
@@ -300,8 +300,8 @@ class _SchoolCard extends StatelessWidget {
                   const SizedBox(width: 12),
                   _MiniStat(
                     icon:  Icons.people_outlined,
-                    value: '${school.studentCount}',
-                    label: 'Students',
+                    value: '${school.employeeCount}',
+                    label: 'Employees',
                   ),
                 ],
               ),

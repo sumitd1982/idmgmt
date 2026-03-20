@@ -9,6 +9,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../config/theme.dart';
 import '../../services/api_service.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/school_provider.dart';
 
 // ── Models ────────────────────────────────────────────────────
 class IdTemplate {
@@ -128,6 +130,7 @@ class _TemplateListState {
   final String typeFilter;   // '' | 'student' | 'teacher'
   final String statusFilter; // '' | 'draft' | 'pending_check' | etc.
   final String search;
+  final String? selectedSchoolId;
 
   const _TemplateListState({
     this.templates = const [],
@@ -136,6 +139,7 @@ class _TemplateListState {
     this.typeFilter   = '',
     this.statusFilter = '',
     this.search       = '',
+    this.selectedSchoolId,
   });
 
   _TemplateListState copyWith({
@@ -145,6 +149,7 @@ class _TemplateListState {
     String? typeFilter,
     String? statusFilter,
     String? search,
+    String? selectedSchoolId,
   }) => _TemplateListState(
         templates:    templates    ?? this.templates,
         isLoading:    isLoading    ?? this.isLoading,
@@ -152,6 +157,7 @@ class _TemplateListState {
         typeFilter:   typeFilter   ?? this.typeFilter,
         statusFilter: statusFilter ?? this.statusFilter,
         search:       search       ?? this.search,
+        selectedSchoolId: selectedSchoolId ?? this.selectedSchoolId,
       );
 }
 
@@ -165,9 +171,11 @@ class _TemplateListNotifier extends StateNotifier<_TemplateListState> {
       if (state.typeFilter.isNotEmpty)   params['template_type'] = state.typeFilter;
       if (state.statusFilter.isNotEmpty) params['status']        = state.statusFilter;
       if (state.search.isNotEmpty)       params['search']        = state.search;
+      if (state.selectedSchoolId != null) params['school_id']    = state.selectedSchoolId;
 
       final resp = await ApiService().get('/id-templates', params: params);
-      final data = (resp['data'] as List).map((e) => IdTemplate.fromJson(e as Map<String, dynamic>)).toList();
+      final list = resp['data'] as List?;
+      final data = (list ?? []).map((e) => IdTemplate.fromJson(e as Map<String, dynamic>)).toList();
       state = state.copyWith(templates: data, isLoading: false);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -215,11 +223,22 @@ class _TemplateListNotifier extends StateNotifier<_TemplateListState> {
       state = state.copyWith(error: e.toString());
     }
   }
+  void setSchoolFilter(String? id) {
+    state = state.copyWith(selectedSchoolId: id);
+    load();
+  }
 }
 
 final _templateListProvider =
     StateNotifierProvider.autoDispose<_TemplateListNotifier, _TemplateListState>(
-  (ref) => _TemplateListNotifier()..load(),
+  (ref) {
+    final user = ref.watch(authNotifierProvider).valueOrNull;
+    final notifier = _TemplateListNotifier();
+    if (user?.role != 'super_admin') {
+      notifier.setSchoolFilter(user?.employee?.schoolId);
+    }
+    return notifier..load();
+  },
 );
 
 // ── Screen ────────────────────────────────────────────────────
@@ -234,7 +253,10 @@ class IdTemplateListScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppTheme.grey50,
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go('/id-templates/new'),
+        onPressed: () {
+          final sid = state.selectedSchoolId;
+          context.go('/id-templates/new${sid != null ? '?schoolId=$sid' : ''}');
+        },
         icon:  const Icon(Icons.add),
         label: Text('New Template', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
         backgroundColor: AppTheme.accent,
@@ -334,6 +356,43 @@ class _FilterBarState extends State<_FilterBar> {
               ],
             ),
           ),
+          // School selector for SuperAdmin
+          Consumer(builder: (ctx, ref, _) {
+            final user = ref.watch(authNotifierProvider).valueOrNull;
+            if (user?.role != 'super_admin') return const SizedBox.shrink();
+            final schoolsAsync = ref.watch(allSchoolsProvider);
+
+            return Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Row(
+                children: [
+                   Text('School: ', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
+                   const SizedBox(width: 8),
+                   Expanded(
+                     child: schoolsAsync.when(
+                       data: (schools) => DropdownButton<String>(
+                         value: widget.state.selectedSchoolId,
+                         hint: const Text('Select school to filter/create'),
+                         isExpanded: true,
+                         underline: Container(height: 1, color: AppTheme.grey300),
+                         style: GoogleFonts.poppins(fontSize: 13, color: AppTheme.grey900),
+                         items: [
+                           const DropdownMenuItem(value: null, child: Text('All Schools')),
+                           ...schools.map((s) => DropdownMenuItem(
+                             value: s['id'] as String,
+                             child: Text(s['name'] as String),
+                           )),
+                         ],
+                         onChanged: widget.notifier.setSchoolFilter,
+                       ),
+                       loading: () => const LinearProgressIndicator(),
+                       error:   (_, __) => const Text('Error loading schools'),
+                     ),
+                   ),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );

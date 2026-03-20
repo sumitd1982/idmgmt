@@ -81,7 +81,11 @@ router.get('/', authenticate, async (req, res, next) => {
     let where  = ['t.is_active = 1'];
     let params = [];
 
-    const effectiveSchoolId = school_id || req.employee?.school_id;
+    // Security: Only super_admin can override the school context
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (school_id || req.employee?.school_id) 
+      : req.employee?.school_id;
+
     if (effectiveSchoolId) { where.push('t.school_id = ?');    params.push(effectiveSchoolId); }
     if (branch_id)         { where.push('t.branch_id = ?');    params.push(branch_id); }
     if (template_type)     { where.push('t.template_type = ?'); params.push(template_type); }
@@ -152,11 +156,19 @@ router.get('/:id', authenticate, async (req, res, next) => {
 });
 
 // ── POST /id-templates ─────────────────────────────────────────
-router.post('/', authenticate, async (req, res, next) => {
+router.post('/',
+  authenticate,
+  requireRole('super_admin', 'principal', 'vp'),
+  async (req, res, next) => {
   try {
     const { school_id, branch_id, name, template_type, card_width_mm, card_height_mm, elements = [] } = req.body;
 
-    if (!name || !school_id) {
+    // Security: Only super_admin can specify a school_id for other schools
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (school_id || req.employee?.school_id) 
+      : req.employee?.school_id;
+
+    if (!name || !effectiveSchoolId) {
       return res.status(400).json({ success: false, message: 'name and school_id are required' });
     }
 
@@ -168,7 +180,7 @@ router.post('/', authenticate, async (req, res, next) => {
         `INSERT INTO id_templates
            (id, school_id, branch_id, name, template_type, status, card_width_mm, card_height_mm, created_by)
          VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
-        [id, school_id, branch_id || null, name, template_type || 'student',
+        [id, effectiveSchoolId, branch_id || null, name, template_type || 'student',
          card_width_mm || 85.6, card_height_mm || 54.0, userId]
       );
 

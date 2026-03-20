@@ -31,8 +31,10 @@ router.get('/', authenticate, async (req, res, next) => {
     let where = ['s.is_active = TRUE'];
     let params = [];
 
-    // Scope to employee's school
-    const effectiveSchoolId = school_id || req.employee?.school_id;
+    // Security: Only super_admin can override the school context
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (school_id || req.employee?.school_id) 
+      : req.employee?.school_id;
 
     // Non-super_admin with no school context sees nothing
     if (req.user.role !== 'super_admin' && !effectiveSchoolId) {
@@ -146,17 +148,20 @@ router.get('/:id', authenticate, async (req, res, next) => {
 // ── POST /students ────────────────────────────────────────────
 router.post('/', authenticate, async (req, res, next) => {
   try {
-    const {
-      school_id, branch_id, student_id, roll_number, class_name, section,
-      first_name, last_name, middle_name, date_of_birth, gender,
-      blood_group, nationality, religion, category, aadhaar_no, admission_no,
-      address_line1, address_line2, city, state, country, zip_code,
-      bus_route, bus_stop, bus_number, guardians = []
-    } = req.body;
+    const { school_id, branch_id, student_id, first_name, last_name, gender, date_of_birth,
+            roll_number, class_name, section, admission_no, aadhaar_no, phone,
+            email, address_line1, city, state, zip_code, guardians = [] } = req.body;
 
-    const effectiveSchoolId = school_id || req.employee?.school_id;
+    // Security: Only super_admin can specify a school_id for other schools
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (school_id || req.employee?.school_id) 
+      : req.employee?.school_id;
+
     const effectiveBranchId = branch_id || req.employee?.branch_id;
 
+    if (!effectiveSchoolId) {
+      return res.status(422).json({ success: false, message: 'school_id is required' });
+    }
     if (!effectiveSchoolId || !effectiveBranchId || !first_name || !gender || !class_name || !section) {
       return res.status(422).json({ success: false, message: 'Required fields missing: school_id, branch_id, first_name, gender, class_name, section' });
     }

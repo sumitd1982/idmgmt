@@ -291,8 +291,18 @@ class _BasicInfoTab extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _F(label: 'School Code *', controller: codeCtrl,
-                    validator: (v) => v == null || v.isEmpty ? 'Required' : null),
+                child: _F(
+                  label: 'School Code *',
+                  controller: codeCtrl,
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return 'Required';
+                    if (!RegExp(r'^[A-Z0-9]+$').hasMatch(v.toUpperCase())) {
+                      return 'Alphanumeric ONLY (A-Z, 0-9)';
+                    }
+                    if (v.length > 20) return 'Max 20 chars';
+                    return null;
+                  },
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(

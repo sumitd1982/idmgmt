@@ -5,8 +5,23 @@ const { authenticate, requireRole } = require('../middleware/auth');
 
 router.get('/roles/:school_id', authenticate, async (req, res, next) => {
   try {
+    const schoolId = req.params.school_id;
+    // Security: Only super_admin can override the school context
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (schoolId || req.employee?.school_id) 
+      : req.employee?.school_id;
+
+    if (!effectiveSchoolId || (req.user.role !== 'super_admin' && effectiveSchoolId !== schoolId)) {
+      // If non-super_admin requested a different school, return their own school's data instead or empty
+      // To match frontend expectations, we'll return data for the effective school
+      const roles = await query(
+        'SELECT * FROM org_roles WHERE school_id=? ORDER BY sort_order', [effectiveSchoolId]
+      );
+      return res.json({ success: true, data: roles });
+    }
+
     const roles = await query(
-      'SELECT * FROM org_roles WHERE school_id=? ORDER BY sort_order', [req.params.school_id]
+      'SELECT * FROM org_roles WHERE school_id=? ORDER BY sort_order', [effectiveSchoolId]
     );
     res.json({ success: true, data: roles });
   } catch (err) { next(err); }

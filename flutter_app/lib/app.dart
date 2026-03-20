@@ -17,6 +17,7 @@ import 'screens/school/school_form_screen.dart';
 import 'screens/branch/branch_screen.dart';
 import 'screens/org/org_structure_screen.dart';
 import 'screens/employee/employee_screen.dart';
+import 'screens/employee/employee_form_screen.dart';
 import 'screens/student/student_screen.dart';
 import 'screens/student/student_form_screen.dart';
 import 'screens/id_card/id_card_designer.dart';
@@ -71,15 +72,9 @@ class _RouterNotifier extends ChangeNotifier {
     }
 
     if (isAuthPath || isLanding) {
-      final user = _authState.value;
-      if (user?.needsOnboarding == true) return '/onboarding';
       return '/dashboard';
     }
 
-    final user = _authState.value;
-    if (!isOnboarding && user?.needsOnboarding == true) {
-      return '/onboarding';
-    }
     return null;
   }
 }
@@ -132,6 +127,18 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/branches',        builder: (_, __) => const BranchScreen()),
           GoRoute(path: '/org-structure',   builder: (_, __) => const OrgStructureScreen()),
           GoRoute(path: '/employees',       builder: (_, __) => const EmployeeScreen()),
+          GoRoute(
+            path: '/employees/new',
+            builder: (_, s) => EmployeeFormScreen(
+              schoolId:  s.uri.queryParameters['schoolId'],
+              branchId:  s.uri.queryParameters['branchId'],
+              reportsTo: s.uri.queryParameters['reportsTo'],
+            ),
+          ),
+          GoRoute(
+            path: '/employees/:id',
+            builder: (_, s) => EmployeeFormScreen(employeeId: s.pathParameters['id']),
+          ),
           GoRoute(path: '/students',        builder: (_, __) => const StudentScreen()),
           GoRoute(path: '/students/new',    builder: (_, __) => const StudentFormScreen()),
           GoRoute(
@@ -140,7 +147,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(path: '/id-cards',        builder: (_, __) => const IdCardDesigner()),
           GoRoute(path: '/id-templates',    builder: (_, __) => const IdTemplateListScreen()),
-          GoRoute(path: '/id-templates/new', builder: (_, __) => const IdTemplateDesignerScreen()),
+          GoRoute(
+            path: '/id-templates/new',
+            builder: (_, s) => IdTemplateDesignerScreen(
+              schoolId: s.uri.queryParameters['schoolId'],
+            ),
+          ),
           GoRoute(
             path: '/id-templates/:id',
             builder: (_, s) => IdTemplateDesignerScreen(templateId: s.pathParameters['id']),

@@ -586,7 +586,8 @@ String _colorToHex(Color c) =>
 // ── Screen ────────────────────────────────────────────────────
 class IdTemplateDesignerScreen extends ConsumerStatefulWidget {
   final String? templateId;
-  const IdTemplateDesignerScreen({super.key, this.templateId});
+  final String? schoolId;
+  const IdTemplateDesignerScreen({super.key, this.templateId, this.schoolId});
 
   @override
   ConsumerState<IdTemplateDesignerScreen> createState() => _IdTemplateDesignerScreenState();
@@ -602,6 +603,14 @@ class _IdTemplateDesignerScreenState extends ConsumerState<IdTemplateDesignerScr
     super.initState();
     _library  = _buildLibrary();
     _nameCtrl = TextEditingController();
+    
+    // Initialize designer
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(designerProvider(widget.templateId).notifier).init(
+        widget.templateId, 
+        widget.schoolId,
+      );
+    });
   }
 
   @override
