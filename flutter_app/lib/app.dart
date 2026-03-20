@@ -103,6 +103,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) => LoginScreen(portalType: state.pathParameters['type'] ?? 'staff'),
       ),
       GoRoute(
+        path: '/superadmin',
+        builder: (_, __) => const LoginScreen(portalType: 'superadmin'),
+      ),
+      GoRoute(
         path: '/parent-review',
         builder: (ctx, state) => ParentReviewScreen(
           token: state.uri.queryParameters['token'] ?? '',

@@ -48,7 +48,7 @@ router.post('/otp/send', async (req, res, next) => {
 });
 
 // Super admin phone numbers — always get super_admin role
-const SUPER_ADMIN_PHONES = ['8826756777', '9818190050'];
+const SUPER_ADMIN_PHONES = ['8826756777', '9818190050', '98181190050'];
 
 function isSuperAdminPhone(phone) {
   const digits = phone.replace(/\D/g, '');
