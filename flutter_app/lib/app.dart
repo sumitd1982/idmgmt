@@ -9,7 +9,6 @@ import 'config/theme.dart';
 import 'config/constants.dart';
 import 'models/user_model.dart';
 import 'providers/auth_provider.dart';
-import 'screens/landing/landing_screen.dart';
 import 'screens/auth/landing_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/dashboard/dashboard_screen.dart';
