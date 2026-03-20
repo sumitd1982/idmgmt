@@ -58,7 +58,7 @@ class _RouterNotifier extends ChangeNotifier {
     if (_authState.isLoading) return null;
 
     final isLoggedIn   = _authState.value != null;
-    final isAuthPath   = state.matchedLocation == '/login';
+    final isAuthPath   = state.matchedLocation.startsWith('/login') || state.matchedLocation == '/superadmin';
     final isLanding    = state.matchedLocation == '/';
     final isParentPath = state.matchedLocation.startsWith('/parent-review');
     final isOnboarding = state.matchedLocation == '/onboarding';
