@@ -67,7 +67,7 @@ services:
     ports:
       - "3001:3001"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:3001/idmgmt/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:3001/idmgmt/api/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -99,7 +99,7 @@ services:
     ports:
       - "8081:80"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost/idmgmt/ || exit 1"]
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
