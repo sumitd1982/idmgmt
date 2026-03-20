@@ -176,10 +176,7 @@ router.get('/me', authenticate, async (req, res, next) => {
 router.get('/setup-status', authenticate, async (req, res, next) => {
   try {
     if (req.user.role === 'super_admin') {
-      const [schoolRow] = await query(
-        'SELECT id FROM schools WHERE created_by = ? LIMIT 1', [req.user.id]
-      );
-      return res.json({ success: true, data: { needsOnboarding: !schoolRow } });
+      return res.json({ success: true, data: { needsOnboarding: false } });
     }
     if (req.user.role === 'viewer') {
       return res.json({ success: true, data: { needsOnboarding: true } });
