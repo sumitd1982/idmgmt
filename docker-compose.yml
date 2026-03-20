@@ -1,0 +1,133 @@
+version: '3.8'
+
+# ============================================================
+# ID MANAGEMENT SYSTEM — Docker Compose
+# Runs alongside ai_trade_bot on trading-network
+# Access: https://80.225.246.32/idmgmt
+# ============================================================
+
+services:
+
+  # ── MySQL Database ──────────────────────────────────────────
+  idmgmt_db:
+    image: mysql:8.0
+    container_name: idmgmt_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_secret}
+      MYSQL_DATABASE:      idmgmt
+      MYSQL_USER:          idmgmt
+      MYSQL_PASSWORD:      ${DB_PASSWORD:-idmgmt_pass}
+    volumes:
+      - idmgmt_dbdata:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./database/sample_data.sql:/docker-entrypoint-initdb.d/02_sample_data.sql:ro
+    ports:
+      - "3307:3306"    # external port 3307 to avoid conflict
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "idmgmt", "--password=${DB_PASSWORD:-idmgmt_pass}"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - trading-network
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_allowed_packet=64M
+      --innodb_buffer_pool_size=256M
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ── Node.js Backend API ─────────────────────────────────────
+  idmgmt_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: idmgmt_backend
+    restart: always
+    depends_on:
+      idmgmt_db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV:    ${NODE_ENV:-production}
+      PORT:        3001
+      DB_HOST:     idmgmt_db
+      DB_PORT:     3306
+      DB_NAME:     idmgmt
+      DB_USER:     idmgmt
+      DB_PASSWORD: ${DB_PASSWORD:-idmgmt_pass}
+      APP_BASE_URL: https://80.225.246.32
+    volumes:
+      - idmgmt_uploads:/app/uploads
+      - idmgmt_logs:/app/logs
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:3001/idmgmt/api/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - trading-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ── Flutter Web Frontend (nginx-alpine) ─────────────────────
+  idmgmt_frontend:
+    build:
+      context: ./flutter_app
+      dockerfile: Dockerfile
+      args:
+        FIREBASE_API_KEY: ${FIREBASE_API_KEY}
+        FIREBASE_APP_ID: ${FIREBASE_APP_ID}
+        FIREBASE_MESSAGING_ID: ${FIREBASE_MESSAGING_ID}
+        FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+        FIREBASE_AUTH_DOMAIN: ${FIREBASE_AUTH_DOMAIN}
+        FIREBASE_STORAGE_BUCKET: ${FIREBASE_STORAGE_BUCKET}
+        GOOGLE_WEB_CLIENT_ID: ${GOOGLE_WEB_CLIENT_ID}
+    container_name: idmgmt_frontend
+    restart: always
+    depends_on:
+      - idmgmt_backend
+    ports:
+      - "8081:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost/idmgmt/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - trading-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+# ============================================================
+# Named Volumes
+# ============================================================
+volumes:
+  idmgmt_dbdata:
+    driver: local
+  idmgmt_uploads:
+    driver: local
+  idmgmt_logs:
+    driver: local
+
+# ============================================================
+# Networks — join existing trading-network
+# ============================================================
+networks:
+  trading-network:
+    external: true
+    name: trading-network

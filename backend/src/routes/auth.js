@@ -1,0 +1,159 @@
+// ============================================================
+// Auth Routes
+// ============================================================
+const router = require('express').Router();
+const { v4: uuid } = require('uuid');
+const axios = require('axios');
+const jwt   = require('jsonwebtoken');
+const { query } = require('../models/db');
+const { authenticate, verifyToken } = require('../middleware/auth');
+const admin  = require('firebase-admin');
+
+const MSG91_KEY      = process.env.MSG91_AUTH_KEY;
+const MSG91_TEMPLATE = process.env.MSG91_TEMPLATE_ID;
+const JWT_SECRET     = process.env.JWT_SECRET || 'changeme';
+
+// ── POST /auth/otp/send — send OTP via MSG91 ─────────────────
+router.post('/otp/send', async (req, res, next) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ success: false, message: 'Phone required' });
+
+    const mobile = phone.replace(/\D/g, ''); // strip non-digits
+
+    const resp = await axios.get('https://api.msg91.com/api/v5/otp', {
+      params: { template_id: MSG91_TEMPLATE, mobile, authkey: MSG91_KEY }
+    });
+
+    if (resp.data?.type === 'success' || resp.data?.message) {
+      return res.json({ success: true, message: 'OTP sent' });
+    }
+    return res.status(500).json({ success: false, message: 'MSG91 error', detail: resp.data });
+  } catch (err) { next(err); }
+});
+
+// Super admin phone numbers — always get super_admin role
+const SUPER_ADMIN_PHONES = ['8826756777', '9818190050'];
+
+function isSuperAdminPhone(phone) {
+  const digits = phone.replace(/\D/g, '');
+  // Match last 10 digits (handles +91 prefix)
+  const last10 = digits.slice(-10);
+  return SUPER_ADMIN_PHONES.includes(last10);
+}
+
+// ── POST /auth/otp/verify — verify OTP via MSG91, return JWT ─
+router.post('/otp/verify', async (req, res, next) => {
+  try {
+    const { phone, otp } = req.body;
+    if (!phone || !otp) return res.status(400).json({ success: false, message: 'Phone and OTP required' });
+
+    const mobile = phone.replace(/\D/g, '');
+
+    // Allow master OTP for testing
+    const MASTER_OTP = '123456';
+    if (otp !== MASTER_OTP) {
+      const resp = await axios.get('https://api.msg91.com/api/v5/otp/verify', {
+        params: { otp, mobile, authkey: MSG91_KEY }
+      });
+      if (resp.data?.type !== 'success') {
+        return res.status(401).json({ success: false, message: 'Invalid or expired OTP' });
+      }
+    }
+
+    const roleForPhone = isSuperAdminPhone(phone) ? 'super_admin' : 'viewer';
+
+    // Find or create user by phone
+    let [user] = await query('SELECT * FROM users WHERE phone = ? LIMIT 1', [phone]);
+    if (!user) {
+      const id = uuid();
+      await query(
+        `INSERT INTO users (id, phone, full_name, display_name, role) VALUES (?, ?, ?, ?, ?)`,
+        [id, phone, 'Phone User', 'Phone User', roleForPhone]
+      );
+      [user] = await query('SELECT * FROM users WHERE id = ?', [id]);
+    } else if (isSuperAdminPhone(phone) && user.role !== 'super_admin') {
+      // Upgrade to super_admin if this is a designated super admin phone
+      await query('UPDATE users SET role = ? WHERE id = ?', ['super_admin', user.id]);
+      [user] = await query('SELECT * FROM users WHERE id = ?', [user.id]);
+    }
+
+    const token = jwt.sign({ userId: user.id, phone }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ success: true, data: { token, user } });
+  } catch (err) { next(err); }
+});
+
+// POST /auth/firebase — exchange Firebase token for user profile
+router.post('/firebase', authenticate, async (req, res, next) => {
+  try {
+    const user = req.user;
+    await query('UPDATE users SET last_login=NOW() WHERE id=?', [user.id]);
+    res.json({ success: true, data: { user, employee: req.employee || null } });
+  } catch (err) { next(err); }
+});
+
+// POST /auth/register — register new user from Firebase token (user may not exist yet)
+router.post('/register', verifyToken, async (req, res, next) => {
+  try {
+    const firebase_uid  = req.firebaseUid;
+    const email         = req.body.email   || req.firebaseEmail || null;
+    const phone         = req.body.phone   || req.firebasePhone || null;
+    const full_name     = req.body.full_name    || 'New User';
+    const display_name  = req.body.display_name || full_name;
+    const photo_url     = req.body.photo_url    || null;
+
+    // Check if already exists by firebase_uid or email
+    const conditions = ['firebase_uid = ?'];
+    const params     = [firebase_uid];
+    if (email) { conditions.push('email = ?'); params.push(email); }
+
+    let [user] = await query(
+      `SELECT * FROM users WHERE ${conditions.join(' OR ')} LIMIT 1`,
+      params
+    );
+
+    if (!user) {
+      const id = uuid();
+      await query(
+        `INSERT INTO users (id, firebase_uid, email, phone, full_name, display_name, photo_url, role)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'viewer')`,
+        [id, firebase_uid, email, phone, full_name, display_name, photo_url]
+      );
+      [user] = await query('SELECT * FROM users WHERE id = ?', [id]);
+    } else if (!user.firebase_uid) {
+      // Existing email user — link firebase_uid
+      await query('UPDATE users SET firebase_uid=?, phone=COALESCE(phone,?) WHERE id=?',
+        [firebase_uid, phone, user.id]);
+      [user] = await query('SELECT * FROM users WHERE id = ?', [user.id]);
+    }
+
+    res.json({ success: true, data: user });
+  } catch (err) { next(err); }
+});
+
+// GET /auth/me — get current user
+router.get('/me', authenticate, async (req, res, next) => {
+  res.json({ success: true, data: { user: req.user, employee: req.employee || null } });
+});
+
+// GET /auth/setup-status — check if super_admin has completed onboarding
+router.get('/setup-status', authenticate, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'super_admin') {
+      return res.json({ success: true, data: { needsOnboarding: false } });
+    }
+    // Check if user has created any school
+    const [schoolRow] = await query(
+      'SELECT id FROM schools WHERE created_by = ? LIMIT 1', [req.user.id]
+    );
+    const needsOnboarding = !schoolRow;
+    res.json({ success: true, data: { needsOnboarding } });
+  } catch (err) { next(err); }
+});
+
+// POST /auth/logout — record logout
+router.post('/logout', authenticate, async (req, res) => {
+  res.json({ success: true, message: 'Logged out' });
+});
+
+module.exports = router;

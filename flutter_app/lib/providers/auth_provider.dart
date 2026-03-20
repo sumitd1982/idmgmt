@@ -1,0 +1,91 @@
+// ============================================================
+// Auth Providers — Firebase + User State
+// ============================================================
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/auth_service.dart';
+import '../models/user_model.dart';
+
+// Raw Firebase auth state
+final authStateProvider = StreamProvider<User?>((ref) {
+  return FirebaseAuth.instance.authStateChanges();
+});
+
+// App-level user profile (from backend)
+final appUserProvider = FutureProvider.autoDispose<AppUser?>((ref) async {
+  final user = await ref.watch(authStateProvider.future);
+  if (user == null) return null;
+  return ref.read(authServiceProvider).getCurrentUser();
+});
+
+final authServiceProvider = Provider<AuthService>((ref) => AuthService());
+
+// Auth notifier for login/logout actions
+class AuthNotifier extends StateNotifier<AsyncValue<AppUser?>> {
+  final AuthService _service;
+
+  AuthNotifier(this._service) : super(const AsyncValue.loading()) {
+    _init();
+  }
+
+  void _init() async {
+    // Check stored JWT first (MSG91 phone login persisted across sessions)
+    final storedToken = await _service.getStoredToken();
+    if (storedToken != null) {
+      try {
+        final appUser = await _service.getCurrentUser();
+        if (appUser != null) {
+          state = AsyncValue.data(appUser);
+          return;
+        }
+      } catch (_) {
+        await _service.clearToken(); // token expired/invalid
+      }
+    }
+
+    // Fall back to Firebase auth stream (Google login)
+    FirebaseAuth.instance.authStateChanges().listen((user) async {
+      if (user == null && state.value == null) {
+        state = const AsyncValue.data(null);
+      } else if (user != null) {
+        try {
+          final appUser = await _service.getCurrentUser();
+          state = AsyncValue.data(appUser);
+        } catch (e, st) {
+          state = AsyncValue.error(e, st);
+        }
+      } else {
+        state = const AsyncValue.data(null);
+      }
+    });
+  }
+
+  Future<void> signInWithGoogle() async {
+    state = const AsyncValue.loading();
+    try {
+      final user = await _service.signInWithGoogle();
+      state = AsyncValue.data(user);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+    }
+  }
+
+  Future<void> signInWithPhone(String phone, String otp) async {
+    state = const AsyncValue.loading();
+    try {
+      final user = await _service.signInWithPhone(phone, otp);
+      state = AsyncValue.data(user);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+    }
+  }
+
+  Future<void> signOut() async {
+    await _service.signOut();
+    state = const AsyncValue.data(null);
+  }
+}
+
+final authNotifierProvider = StateNotifierProvider<AuthNotifier, AsyncValue<AppUser?>>((ref) {
+  return AuthNotifier(ref.read(authServiceProvider));
+});
