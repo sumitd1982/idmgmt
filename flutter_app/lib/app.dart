@@ -10,6 +10,7 @@ import 'config/constants.dart';
 import 'models/user_model.dart';
 import 'providers/auth_provider.dart';
 import 'screens/landing/landing_screen.dart';
+import 'screens/auth/landing_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/dashboard/dashboard_screen.dart';
 import 'screens/school/school_list_screen.dart';
@@ -99,8 +100,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const LandingScreen(),
       ),
       GoRoute(
-        path: '/login',
-        builder: (_, __) => const LoginScreen(),
+        path: '/login/:type',
+        builder: (_, state) => LoginScreen(portalType: state.pathParameters['type'] ?? 'staff'),
       ),
       GoRoute(
         path: '/parent-review',

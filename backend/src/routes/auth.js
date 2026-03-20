@@ -172,18 +172,19 @@ router.get('/me', authenticate, async (req, res, next) => {
   res.json({ success: true, data: { user: req.user, employee: req.employee || null } });
 });
 
-// GET /auth/setup-status — check if super_admin has completed onboarding
+// GET /auth/setup-status — check if user needs to run the onboarding/school creation flow
 router.get('/setup-status', authenticate, async (req, res, next) => {
   try {
-    if (req.user.role !== 'super_admin') {
-      return res.json({ success: true, data: { needsOnboarding: false } });
+    if (req.user.role === 'super_admin') {
+      const [schoolRow] = await query(
+        'SELECT id FROM schools WHERE created_by = ? LIMIT 1', [req.user.id]
+      );
+      return res.json({ success: true, data: { needsOnboarding: !schoolRow } });
     }
-    // Check if user has created any school
-    const [schoolRow] = await query(
-      'SELECT id FROM schools WHERE created_by = ? LIMIT 1', [req.user.id]
-    );
-    const needsOnboarding = !schoolRow;
-    res.json({ success: true, data: { needsOnboarding } });
+    if (req.user.role === 'viewer') {
+      return res.json({ success: true, data: { needsOnboarding: true } });
+    }
+    return res.json({ success: true, data: { needsOnboarding: false } });
   } catch (err) { next(err); }
 });
 

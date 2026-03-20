@@ -18,7 +18,8 @@ import '../../providers/auth_provider.dart';
 enum _Step { method, phone, otp }
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  final String portalType;
+  const LoginScreen({super.key, required this.portalType});
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -68,13 +69,57 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   String get _otpValue => _otpCtrls.map((c) => c.text).join();
 
-  void _navigateAfterLogin() {
+  Future<void> _navigateAfterLogin() async {
     if (!mounted) return;
     final user = ref.read(authNotifierProvider).valueOrNull;
-    debugPrint('[LOGIN] Navigate after login — userId: ${user?.id}, '
-        'role: ${user?.role}, needsOnboarding: ${user?.needsOnboarding}');
     if (user == null) return;
+
+    bool isBlocked = false;
+    String errorMessage = '';
+
+    if (widget.portalType == 'staff') {
+      if (user.role == 'viewer' || user.role == 'parent' || user.role == 'student') {
+        isBlocked = true;
+        errorMessage = 'Your number is not registered as Staff. Please contact your administrator.';
+      }
+    } else if (widget.portalType == 'parent') {
+      if (user.role != 'parent') {
+        isBlocked = true;
+        errorMessage = 'This number is not registered as a Parent. Please contact your administrator.';
+      }
+    } else if (widget.portalType == 'superadmin') {
+      if (user.role != 'super_admin') {
+        isBlocked = true;
+        errorMessage = 'Unauthorized. This console is restricted.';
+      }
+    } 
+
+    if (isBlocked) {
+      await ref.read(authNotifierProvider.notifier).signOut();
+      if (!mounted) return;
+      setState(() => _error = errorMessage);
+      return;
+    }
+
     context.go(user.needsOnboarding ? '/onboarding' : '/dashboard');
+  }
+
+  String get _title {
+    switch (widget.portalType) {
+      case 'parent': return 'Parent Portal 👋';
+      case 'register': return 'Register School 🏫';
+      case 'superadmin': return 'System Console 🛡️';
+      default: return 'Staff Portal 👋';
+    }
+  }
+
+  String get _subtitle {
+    switch (widget.portalType) {
+      case 'parent': return 'Track your child’s ID and view school updates.';
+      case 'register': return 'Set up a new institution on SchoolID Pro.';
+      case 'superadmin': return 'Unrestricted system-wide access.';
+      default: return 'Sign in to manage your school operations.';
+    }
   }
 
   // ── Actions ────────────────────────────────────────────────
@@ -87,7 +132,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       debugPrint('[LOGIN] Google sign-in started');
       await ref.read(authNotifierProvider.notifier).signInWithGoogle();
       debugPrint('[LOGIN] Google sign-in success');
-      _navigateAfterLogin();
+      await _navigateAfterLogin();
     } catch (e) {
       debugPrint('[LOGIN] Google sign-in failed: $e');
       _setError(e.toString().replaceFirst('Exception: ', ''));
@@ -143,7 +188,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       final user = ref.read(authNotifierProvider).valueOrNull;
       debugPrint('[LOGIN] OTP verify SUCCESS — userId: ${user?.id}, '
           'role: ${user?.role}, needsOnboarding: ${user?.needsOnboarding}');
-      _navigateAfterLogin();
+      await _navigateAfterLogin();
     } catch (e) {
       debugPrint('[LOGIN] OTP verify FAILED — $e');
       setState(() {
@@ -280,6 +325,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       child: switch (_step) {
         _Step.method => _MethodStep(
             key: const ValueKey('method'),
+            portalType: widget.portalType,
+            title: _title,
+            subtitle: _subtitle,
             loading: _loading,
             error: _error,
             onGoogle: _signInGoogle,
@@ -526,6 +574,9 @@ class _BrandPanel extends StatelessWidget {
 // STEP: METHOD (choose Google or Phone)
 // ─────────────────────────────────────────────────────────────
 class _MethodStep extends StatelessWidget {
+  final String portalType;
+  final String title;
+  final String subtitle;
   final bool loading;
   final String? error;
   final VoidCallback? onGoogle;
@@ -533,6 +584,9 @@ class _MethodStep extends StatelessWidget {
 
   const _MethodStep({
     super.key,
+    required this.portalType,
+    required this.title,
+    required this.subtitle,
     required this.loading,
     required this.error,
     required this.onGoogle,
@@ -545,8 +599,8 @@ class _MethodStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _FormHeading(
-          title: 'Welcome back',
-          subtitle: 'Sign in to your ${AppConstants.appName} dashboard',
+          title: title,
+          subtitle: subtitle,
         ),
         const SizedBox(height: 36),
 
