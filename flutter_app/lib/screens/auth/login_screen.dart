@@ -458,7 +458,7 @@ class _BrandPanel extends StatelessWidget {
 
               Text('Design, review and print ID cards for your\nentire school — all from one dashboard.',
                   style: GoogleFonts.poppins(
-                      color: Colors.white.withValues(alpha: 0.45),
+                      color: Colors.white.withOpacity(0.45),
                       fontSize: 15,
                       height: 1.7))
                   .animate()
@@ -485,7 +485,7 @@ class _BrandPanel extends StatelessWidget {
                           Text(e.value.$2,
                               style: GoogleFonts.poppins(
                                   color:
-                                      Colors.white.withValues(alpha: 0.7),
+                                      Colors.white.withOpacity(0.7),
                                   fontSize: 14,
                                   fontWeight: FontWeight.w500)),
                         ]),
@@ -502,10 +502,10 @@ class _BrandPanel extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.05),
+                  color: Colors.white.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.08)),
+                      color: Colors.white.withOpacity(0.08)),
                 ),
                 child: Row(children: [
                   // Avatars
@@ -555,7 +555,7 @@ class _BrandPanel extends StatelessWidget {
                         const SizedBox(height: 2),
                         Text('Across India — CBSE, ICSE & State boards',
                             style: GoogleFonts.poppins(
-                                color: Colors.white.withValues(alpha: 0.4),
+                                color: Colors.white.withOpacity(0.4),
                                 fontSize: 11)),
                       ],
                     ),
@@ -642,7 +642,7 @@ class _MethodStep extends StatelessWidget {
               'By signing in you agree to our Terms of Service\nand Privacy Policy.',
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
-                  color: Colors.white.withValues(alpha: 0.3),
+                  color: Colors.white.withOpacity(0.3),
                   fontSize: 11,
                   height: 1.6)),
         ),
@@ -686,9 +686,9 @@ class _PhoneStep extends StatelessWidget {
         // Phone input
         Container(
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.05),
+            color: Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            border: Border.all(color: Colors.white.withOpacity(0.12)),
           ),
           child: Row(children: [
             // Country code
@@ -698,7 +698,7 @@ class _PhoneStep extends StatelessWidget {
               decoration: BoxDecoration(
                 border: Border(
                     right: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.1))),
+                        color: Colors.white.withOpacity(0.1))),
               ),
               child: Row(children: [
                 Text('🇮🇳',
@@ -727,7 +727,7 @@ class _PhoneStep extends StatelessWidget {
                   border: InputBorder.none,
                   hintText: '98100 00000',
                   hintStyle: GoogleFonts.poppins(
-                      color: Colors.white.withValues(alpha: 0.25),
+                      color: Colors.white.withOpacity(0.25),
                       fontSize: 17),
                   contentPadding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 16),
@@ -772,7 +772,7 @@ class _PhoneStep extends StatelessWidget {
         Center(
           child: Text('OTP sent via SMS to your mobile number.',
               style: GoogleFonts.poppins(
-                  color: Colors.white.withValues(alpha: 0.3),
+                  color: Colors.white.withOpacity(0.3),
                   fontSize: 12)),
         ),
       ],
@@ -869,7 +869,7 @@ class _OtpStep extends StatelessWidget {
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text("Didn't receive the code? ",
               style: GoogleFonts.poppins(
-                  color: Colors.white.withValues(alpha: 0.35),
+                  color: Colors.white.withOpacity(0.35),
                   fontSize: 13)),
           GestureDetector(
             onTap: loading ? null : onResend,
@@ -922,16 +922,16 @@ class _OtpBox extends StatelessWidget {
         decoration: InputDecoration(
           counterText: '',
           filled: true,
-          fillColor: Colors.white.withValues(alpha: 0.06),
+          fillColor: Colors.white.withOpacity(0.06),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide:
-                BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                BorderSide(color: Colors.white.withOpacity(0.12)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide:
-                BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                BorderSide(color: Colors.white.withOpacity(0.12)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
@@ -976,7 +976,7 @@ class _FormHeading extends StatelessWidget {
       const SizedBox(height: 6),
       Text(subtitle,
           style: GoogleFonts.poppins(
-              color: Colors.white.withValues(alpha: 0.42), fontSize: 14)),
+              color: Colors.white.withOpacity(0.42), fontSize: 14)),
     ]).animate().fadeIn(duration: 300.ms).slideY(begin: 0.15);
   }
 }
@@ -991,11 +991,11 @@ class _BackButton extends StatelessWidget {
       onTap: onBack,
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(Icons.arrow_back_rounded,
-            color: Colors.white.withValues(alpha: 0.5), size: 18),
+            color: Colors.white.withOpacity(0.5), size: 18),
         const SizedBox(width: 6),
         Text('Back',
             style: GoogleFonts.poppins(
-                color: Colors.white.withValues(alpha: 0.5),
+                color: Colors.white.withOpacity(0.5),
                 fontSize: 13)),
       ]),
     );
@@ -1011,14 +1011,14 @@ class _ErrorBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.error.withValues(alpha: 0.12),
+        color: AppTheme.error.withOpacity(0.12),
         borderRadius: BorderRadius.circular(10),
         border:
-            Border.all(color: AppTheme.error.withValues(alpha: 0.3)),
+            Border.all(color: AppTheme.error.withOpacity(0.3)),
       ),
       child: Row(children: [
         Icon(Icons.error_outline_rounded,
-            color: AppTheme.error.withValues(alpha: 0.8), size: 18),
+            color: AppTheme.error.withOpacity(0.8), size: 18),
         const SizedBox(width: 10),
         Expanded(
             child: Text(message,
@@ -1036,17 +1036,17 @@ class _Divider extends StatelessWidget {
     return Row(children: [
       Expanded(
           child: Divider(
-              color: Colors.white.withValues(alpha: 0.1))),
+              color: Colors.white.withOpacity(0.1))),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Text('or',
             style: GoogleFonts.poppins(
-                color: Colors.white.withValues(alpha: 0.3),
+                color: Colors.white.withOpacity(0.3),
                 fontSize: 13)),
       ),
       Expanded(
           child: Divider(
-              color: Colors.white.withValues(alpha: 0.1))),
+              color: Colors.white.withOpacity(0.1))),
     ]);
   }
 }
@@ -1057,17 +1057,17 @@ class _InfoCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
+        color: Colors.white.withOpacity(0.03),
         borderRadius: BorderRadius.circular(14),
         border:
-            Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            Border.all(color: Colors.white.withOpacity(0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Who can sign in?',
               style: GoogleFonts.poppins(
-                  color: Colors.white.withValues(alpha: 0.5),
+                  color: Colors.white.withOpacity(0.5),
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 1)),
@@ -1087,7 +1087,7 @@ class _InfoCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Text(row.$2,
                     style: GoogleFonts.poppins(
-                        color: Colors.white.withValues(alpha: 0.55),
+                        color: Colors.white.withOpacity(0.55),
                         fontSize: 13)),
               ]),
             ),
@@ -1124,7 +1124,7 @@ class _AuthButton extends StatelessWidget {
       child: Material(
         color: isOutline
             ? Colors.transparent
-            : AppTheme.primary.withValues(alpha: 0.8),
+            : AppTheme.primary.withOpacity(0.8),
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           onTap: onTap,
@@ -1135,8 +1135,8 @@ class _AuthButton extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                   color: isOutline
-                      ? Colors.white.withValues(alpha: 0.15)
-                      : AppTheme.primaryLight.withValues(alpha: 0.4)),
+                      ? Colors.white.withOpacity(0.15)
+                      : AppTheme.primaryLight.withOpacity(0.4)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -1224,8 +1224,8 @@ class _GlowBlob extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: RadialGradient(colors: [
-          color.withValues(alpha: opacity),
-          color.withValues(alpha: 0),
+          color.withOpacity(opacity),
+          color.withOpacity(0),
         ]),
       ),
     );
@@ -1236,7 +1236,7 @@ class _MiniGridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.02)
+      ..color = Colors.white.withOpacity(0.02)
       ..strokeWidth = 1;
     const gap = 48.0;
     for (var x = 0.0; x < size.width; x += gap) {

@@ -83,7 +83,7 @@ class _NavBar extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       color: scrolled
-          ? const Color(0xFF06070F).withValues(alpha: 0.95)
+          ? const Color(0xFF06070F).withOpacity(0.95)
           : Colors.transparent,
       child: SafeArea(
         child: SizedBox(
@@ -228,9 +228,9 @@ class _HeroContent extends StatelessWidget {
               const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           decoration: BoxDecoration(
             border: Border.all(
-                color: AppTheme.secondary.withValues(alpha: 0.4)),
+                color: AppTheme.secondary.withOpacity(0.4)),
             borderRadius: BorderRadius.circular(20),
-            color: AppTheme.secondary.withValues(alpha: 0.08),
+            color: AppTheme.secondary.withOpacity(0.08),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Container(
@@ -267,7 +267,7 @@ class _HeroContent extends StatelessWidget {
         Text(
           'Design ID cards, manage student data,\nrun parent reviews and print — one dashboard.',
           style: GoogleFonts.poppins(
-            color: Colors.white.withValues(alpha: 0.5),
+            color: Colors.white.withOpacity(0.5),
             fontSize: isMobile ? 15 : 17,
             height: 1.7,
           ),
@@ -306,7 +306,7 @@ class _HeroContent extends StatelessWidget {
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
                 side: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.2)),
+                    color: Colors.white.withOpacity(0.2)),
                 padding: const EdgeInsets.symmetric(
                     horizontal: 28, vertical: 16),
                 shape: RoundedRectangleBorder(
@@ -352,7 +352,7 @@ class _HeroContent extends StatelessWidget {
           const SizedBox(width: 14),
           Text('2,000+ educators joined this year',
               style: GoogleFonts.poppins(
-                  color: Colors.white.withValues(alpha: 0.4),
+                  color: Colors.white.withOpacity(0.4),
                   fontSize: 13)),
         ]).animate().fadeIn(delay: 500.ms),
       ],
@@ -368,10 +368,10 @@ class _HeroDashboardPreview extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
+        color: Colors.white.withOpacity(0.04),
         borderRadius: BorderRadius.circular(24),
         border:
-            Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            Border.all(color: Colors.white.withOpacity(0.08)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -393,7 +393,7 @@ class _HeroDashboardPreview extends StatelessWidget {
                 width: 52,
                 height: 64,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.15),
+                  color: Colors.white.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.person_rounded,
@@ -412,14 +412,14 @@ class _HeroDashboardPreview extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text('Class X-A  •  Roll 14',
                         style: GoogleFonts.poppins(
-                            color: Colors.white.withValues(alpha: 0.7),
+                            color: Colors.white.withOpacity(0.7),
                             fontSize: 12)),
                     const SizedBox(height: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 3),
                       decoration: BoxDecoration(
-                        color: AppTheme.secondary.withValues(alpha: 0.2),
+                        color: AppTheme.secondary.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text('DPS, New Delhi',
@@ -470,10 +470,10 @@ class _HeroDashboardPreview extends StatelessWidget {
               padding: const EdgeInsets.symmetric(
                   horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.04),
+                color: Colors.white.withOpacity(0.04),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.06)),
+                    color: Colors.white.withOpacity(0.06)),
               ),
               child: Row(children: [
                 Icon(item.$1, color: item.$4, size: 15),
@@ -481,11 +481,11 @@ class _HeroDashboardPreview extends StatelessWidget {
                 Expanded(
                     child: Text(item.$2,
                         style: GoogleFonts.poppins(
-                            color: Colors.white.withValues(alpha: 0.7),
+                            color: Colors.white.withOpacity(0.7),
                             fontSize: 12))),
                 Text(item.$3,
                     style: GoogleFonts.poppins(
-                        color: Colors.white.withValues(alpha: 0.3),
+                        color: Colors.white.withOpacity(0.3),
                         fontSize: 11)),
               ]),
             ),
@@ -509,7 +509,7 @@ class _PreviewStat extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
+          color: Colors.white.withOpacity(0.05),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Column(children: [
@@ -521,7 +521,7 @@ class _PreviewStat extends StatelessWidget {
           const SizedBox(height: 2),
           Text(label,
               style: GoogleFonts.poppins(
-                  color: Colors.white.withValues(alpha: 0.35),
+                  color: Colors.white.withOpacity(0.35),
                   fontSize: 10)),
         ]),
       ),
@@ -578,8 +578,8 @@ class _Blob extends StatelessWidget {
         shape: BoxShape.circle,
         gradient: RadialGradient(
           colors: [
-            color.withValues(alpha: opacity),
-            color.withValues(alpha: 0),
+            color.withOpacity(opacity),
+            color.withOpacity(0),
           ],
         ),
       ),
@@ -591,7 +591,7 @@ class _GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.025)
+      ..color = Colors.white.withOpacity(0.025)
       ..strokeWidth = 1;
     const gap = 52.0;
     for (var x = 0.0; x < size.width; x += gap) {
@@ -628,13 +628,13 @@ class _LogoStrip extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border.symmetric(
           horizontal: BorderSide(
-              color: Colors.white.withValues(alpha: 0.06)),
+              color: Colors.white.withOpacity(0.06)),
         ),
       ),
       child: Column(children: [
         Text('TRUSTED BY LEADING SCHOOLS ACROSS INDIA',
             style: GoogleFonts.poppins(
-                color: Colors.white.withValues(alpha: 0.25),
+                color: Colors.white.withOpacity(0.25),
                 fontSize: 11,
                 letterSpacing: 2.5,
                 fontWeight: FontWeight.w600)),
@@ -646,7 +646,7 @@ class _LogoStrip extends StatelessWidget {
           children: _schools
               .map((s) => Text(s,
                   style: GoogleFonts.poppins(
-                      color: Colors.white.withValues(alpha: 0.18),
+                      color: Colors.white.withOpacity(0.18),
                       fontSize: 13,
                       fontWeight: FontWeight.w600)))
               .toList(),
@@ -721,7 +721,7 @@ class _FeaturesSection extends StatelessWidget {
         Text('From first upload to final print — all in one place.',
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
-                color: Colors.white.withValues(alpha: 0.4),
+                color: Colors.white.withOpacity(0.4),
                 fontSize: 16)),
         const SizedBox(height: 60),
         _buildGrid(isMobile),
@@ -803,13 +803,13 @@ class _FeatureCardState extends State<_FeatureCard> {
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
           color: _hovered
-              ? Colors.white.withValues(alpha: 0.07)
-              : Colors.white.withValues(alpha: 0.03),
+              ? Colors.white.withOpacity(0.07)
+              : Colors.white.withOpacity(0.03),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: _hovered
-                ? widget.color.withValues(alpha: 0.35)
-                : Colors.white.withValues(alpha: 0.07),
+                ? widget.color.withOpacity(0.35)
+                : Colors.white.withOpacity(0.07),
           ),
         ),
         child: Column(
@@ -819,7 +819,7 @@ class _FeatureCardState extends State<_FeatureCard> {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: widget.color.withValues(alpha: 0.12),
+                color: widget.color.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(widget.icon, color: widget.color, size: 24),
@@ -833,7 +833,7 @@ class _FeatureCardState extends State<_FeatureCard> {
             const SizedBox(height: 8),
             Text(widget.desc,
                 style: GoogleFonts.poppins(
-                    color: Colors.white.withValues(alpha: 0.42),
+                    color: Colors.white.withOpacity(0.42),
                     fontSize: 13,
                     height: 1.65)),
           ],
@@ -895,7 +895,7 @@ class _HowItWorksSection extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(
             top: BorderSide(
-                color: Colors.white.withValues(alpha: 0.05))),
+                color: Colors.white.withOpacity(0.05))),
       ),
       child: Column(children: [
         _SectionLabel('HOW IT WORKS'),
@@ -963,7 +963,7 @@ class _StepTile extends StatelessWidget {
         const SizedBox(height: 8),
         Text(step.$3,
             style: GoogleFonts.poppins(
-                color: Colors.white.withValues(alpha: 0.42),
+                color: Colors.white.withOpacity(0.42),
                 fontSize: 13,
                 height: 1.65)),
       ],
@@ -1029,7 +1029,7 @@ class _StatChip extends StatelessWidget {
       const SizedBox(height: 4),
       Text(label,
           style: GoogleFonts.poppins(
-              color: Colors.white.withValues(alpha: 0.5),
+              color: Colors.white.withOpacity(0.5),
               fontSize: 15)),
     ]).animate().fadeIn(delay: 200.ms).scale(begin: const Offset(0.85, 0.85));
   }
@@ -1054,9 +1054,9 @@ class _CtaBanner extends StatelessWidget {
               const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           decoration: BoxDecoration(
             border: Border.all(
-                color: AppTheme.accentLight.withValues(alpha: 0.4)),
+                color: AppTheme.accentLight.withOpacity(0.4)),
             borderRadius: BorderRadius.circular(20),
-            color: AppTheme.accentLight.withValues(alpha: 0.06),
+            color: AppTheme.accentLight.withOpacity(0.06),
           ),
           child: Text('No credit card required',
               style: GoogleFonts.poppins(
@@ -1077,7 +1077,7 @@ class _CtaBanner extends StatelessWidget {
             'Join 500+ schools already using SchoolID Pro.\nSetup takes less than 10 minutes.',
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
-                color: Colors.white.withValues(alpha: 0.4),
+                color: Colors.white.withOpacity(0.4),
                 fontSize: 16,
                 height: 1.6)),
         const SizedBox(height: 40),
@@ -1119,7 +1119,7 @@ class _Footer extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(
             top: BorderSide(
-                color: Colors.white.withValues(alpha: 0.06))),
+                color: Colors.white.withOpacity(0.06))),
       ),
       child: isMobile
           ? Column(
@@ -1165,7 +1165,7 @@ class _Footer extends StatelessWidget {
       const SizedBox(height: 14),
       Text('Intelligent school identity\nmanagement for India.',
           style: GoogleFonts.poppins(
-              color: Colors.white.withValues(alpha: 0.3),
+              color: Colors.white.withOpacity(0.3),
               fontSize: 13,
               height: 1.65)),
       const SizedBox(height: 20),
@@ -1190,7 +1190,7 @@ class _Footer extends StatelessWidget {
     return Text(
         '© ${DateTime.now().year} SchoolID Pro. Made in India 🇮🇳',
         style: GoogleFonts.poppins(
-            color: Colors.white.withValues(alpha: 0.2), fontSize: 12));
+            color: Colors.white.withOpacity(0.2), fontSize: 12));
   }
 }
 
@@ -1220,7 +1220,7 @@ class _FooterCol extends StatelessWidget {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                 child: Text(l,
                     style: GoogleFonts.poppins(
-                        color: Colors.white.withValues(alpha: 0.3),
+                        color: Colors.white.withOpacity(0.3),
                         fontSize: 13)),
               ),
             )),
@@ -1242,12 +1242,12 @@ class _SectionLabel extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
         border:
-            Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            Border.all(color: Colors.white.withOpacity(0.12)),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(label,
           style: GoogleFonts.poppins(
-              color: Colors.white.withValues(alpha: 0.4),
+              color: Colors.white.withOpacity(0.4),
               fontSize: 11,
               letterSpacing: 2.5,
               fontWeight: FontWeight.w600)),
