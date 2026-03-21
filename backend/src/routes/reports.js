@@ -3,7 +3,7 @@
 // ============================================================
 const router = require('express').Router();
 const { query } = require('../models/db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireRole } = require('../middleware/auth');
 const xlsx = require('xlsx');
 
 function sendExcel(res, data, sheetName, filename) {

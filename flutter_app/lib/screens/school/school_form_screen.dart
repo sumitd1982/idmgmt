@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:typed_data';
 import '../../config/theme.dart';
+import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 
 // ── Provider ──────────────────────────────────────────────────
@@ -147,6 +148,29 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
   }
 
   Future<void> _save() async {
+    // Flutter TabBarView lazily builds tabs — unvisited tabs are not in the
+    // widget tree so their validators never fire.  Check required fields on
+    // all tabs explicitly before calling form.validate().
+    int? errorTab;
+    if (_nameCtrl.text.trim().isEmpty || _codeCtrl.text.trim().isEmpty) {
+      errorTab = 0;
+    } else if (_phoneCtrl.text.trim().isEmpty || _emailCtrl.text.trim().isEmpty) {
+      errorTab = 1;
+    } else if (_addressCtrl.text.trim().isEmpty ||
+        _cityCtrl.text.trim().isEmpty ||
+        _stateCtrl.text.trim().isEmpty ||
+        _pinCtrl.text.trim().isEmpty) {
+      errorTab = 2;
+    }
+
+    if (errorTab != null) {
+      _tabCtrl.animateTo(errorTab);
+      // Give the tab a frame to build before triggering validators.
+      await Future.delayed(const Duration(milliseconds: 100));
+      _formKey.currentState?.validate();
+      return;
+    }
+
     if (!(_formKey.currentState?.validate() ?? false)) {
       _tabCtrl.animateTo(0);
       return;

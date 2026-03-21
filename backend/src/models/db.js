@@ -40,7 +40,7 @@ const getPool = () => {
  * @param {Array|Object} params
  */
 const query = async (sql, params = []) => {
-  const [rows] = await getPool().execute(sql, params);
+  const [rows] = await getPool().query(sql, params);
   return rows;
 };
 

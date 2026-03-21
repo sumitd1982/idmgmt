@@ -153,9 +153,12 @@ router.get('/:id', authenticate, async (req, res, next) => {
 // ── POST /students ────────────────────────────────────────────
 router.post('/', authenticate, async (req, res, next) => {
   try {
-    const { school_id, branch_id, student_id, first_name, last_name, gender, date_of_birth,
+    const { school_id, branch_id, student_id, first_name, middle_name = null, last_name, gender, date_of_birth,
             roll_number, class_name, section, admission_no, aadhaar_no, phone,
-            email, address_line1, city, state, zip_code, guardians = [] } = req.body;
+            email, address_line1, address_line2 = null, city, state, country = 'India', zip_code,
+            blood_group = null, nationality = null, religion = null, category = null,
+            bus_route = null, bus_stop = null, bus_number = null,
+            guardians = [] } = req.body;
 
     // Security: Only super_admin/school_owner can specify a school_id for other schools
     let effectiveSchoolId;
@@ -202,7 +205,7 @@ router.post('/', authenticate, async (req, res, next) => {
         [id, effectiveSchoolId, effectiveBranchId, student_id, roll_number,
          class_name, section, first_name, last_name, middle_name, date_of_birth, gender,
          blood_group, nationality, religion, category, aadhaar_no, admission_no,
-         address_line1, address_line2, city, state, country || 'India', zip_code,
+         address_line1, address_line2, city, state, country, zip_code,
          bus_route, bus_stop, bus_number]
       );
 
@@ -298,9 +301,19 @@ router.post('/bulk-upload', authenticate,
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
     const batchId  = uuid();
-    const { school_id, branch_id } = req.body;
+    const school_id_raw = req.body.school_id;
+    const effectiveSchoolId = req.user.role === 'super_admin'
+      ? (school_id_raw || req.employee?.school_id)
+      : (req.user.role === 'school_owner' ? req.user.school_id : req.employee?.school_id);
+    const school_id = effectiveSchoolId;
+    const branch_id = req.body.branch_id || req.employee?.branch_id || null;
 
     try {
+      if (!school_id) {
+        fs.unlink(req.file.path, () => {});
+        return res.status(422).json({ success: false, message: 'school_id is required' });
+      }
+
       // Record batch
       await query(
         `INSERT INTO bulk_batches (id, school_id, branch_id, type, filename, status, uploaded_by)

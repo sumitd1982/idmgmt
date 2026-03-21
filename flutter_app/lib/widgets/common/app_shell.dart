@@ -1025,7 +1025,7 @@ class _UserMenu extends ConsumerWidget {
         backgroundImage: user?.photoUrl != null ? NetworkImage(user!.photoUrl!) : null,
         child: user?.photoUrl == null ? Text(user!.displayName[0].toUpperCase()) : null,
       ),
-      itemBuilder: (ctx) => [
+      itemBuilder: (ctx) => <PopupMenuEntry<dynamic>>[
         PopupMenuItem(
           child: Text(user!.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
         ),

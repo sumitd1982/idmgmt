@@ -116,10 +116,10 @@ router.post('/',
           phone1, phone2, email, website, whatsapp_no, facebook_url, twitter_url,
           instagram_url, academic_year, timezone, created_by)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [id, name, short_name, code, affiliation_no, affiliation_board,
-         school_type || 'private', address_line1, address_line2, city, state, country, zip_code,
-         phone1, phone2, email, website, whatsapp_no, facebook_url, twitter_url,
-         instagram_url, academic_year || '2025-26', timezone || 'Asia/Kolkata', req.user.id]
+        [id, name, short_name ?? null, code, affiliation_no ?? null, affiliation_board ?? null,
+         school_type || 'private', address_line1, address_line2 ?? null, city, state, country, zip_code,
+         phone1, phone2 ?? null, email, website ?? null, whatsapp_no ?? null, facebook_url ?? null, twitter_url ?? null,
+         instagram_url ?? null, academic_year || '2025-26', timezone || 'Asia/Kolkata', req.user.id]
       );
 
       // Default org roles for new school
@@ -149,9 +149,9 @@ router.post('/',
         
         if (principalRole) {
           await query(
-            `INSERT INTO employees (id, user_id, school_id, org_role_id, first_name, last_name, email, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)`,
-            [empId, req.user.id, id, principalRole.id, req.user.full_name.split(' ')[0], req.user.full_name.split(' ').slice(1).join(' ') || 'Owner', req.user.email]
+            `INSERT INTO employees (id, user_id, school_id, org_role_id, employee_id, first_name, last_name, email, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+            [empId, req.user.id, id, principalRole.id, 'PRIN001', req.user.full_name.split(' ')[0], req.user.full_name.split(' ').slice(1).join(' ') || 'Owner', req.user.email]
           );
         }
       }

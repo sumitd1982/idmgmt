@@ -115,8 +115,8 @@ router.get('/', authenticate, async (req, res, next) => {
        LEFT JOIN users u4 ON u4.id = t.approved_by
        WHERE ${whereClause}
        ORDER BY t.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, Number(limit), offset]
+       LIMIT ${parseInt(limit, 10)} OFFSET ${offset}`,
+      params
     );
 
     res.json({
@@ -173,7 +173,7 @@ router.post('/',
     }
 
     const id      = uuid();
-    const userId  = req.user?.uid || req.employee?.user_id;
+    const userId  = req.user?.id || req.employee?.user_id;
 
     await transaction(async (conn) => {
       await conn.query(
@@ -298,7 +298,7 @@ router.post('/:id/submit', authenticate, async (req, res, next) => {
       return res.status(400).json({ success: false, message: `Cannot submit from status: ${tmpl.status}` });
     }
 
-    const userId = req.user?.uid || req.employee?.user_id;
+    const userId = req.user?.id || req.employee?.user_id;
     await query(
       `UPDATE id_templates SET status='pending_check', submitted_by=?, submitted_at=NOW() WHERE id=?`,
       [userId, req.params.id]
@@ -321,7 +321,7 @@ router.post('/:id/check', authenticate, async (req, res, next) => {
 
     const { approved, notes } = req.body;
     const newStatus = approved ? 'pending_approval' : 'rejected';
-    const userId    = req.user?.uid || req.employee?.user_id;
+    const userId    = req.user?.id || req.employee?.user_id;
 
     await query(
       `UPDATE id_templates SET status=?, checked_by=?, checked_at=NOW(), check_notes=? WHERE id=?`,
@@ -349,7 +349,7 @@ router.post('/:id/approve', authenticate, async (req, res, next) => {
 
     const { approved, notes } = req.body;
     const newStatus = approved ? 'approved' : 'rejected';
-    const userId    = req.user?.uid || req.employee?.user_id;
+    const userId    = req.user?.id || req.employee?.user_id;
 
     await query(
       `UPDATE id_templates SET status=?, approved_by=?, approved_at=NOW(), approval_notes=? WHERE id=?`,
@@ -398,7 +398,7 @@ router.post('/:id/duplicate', authenticate, async (req, res, next) => {
     const elements = await query('SELECT * FROM id_template_elements WHERE template_id = ?', [req.params.id]);
 
     const newId  = uuid();
-    const userId = req.user?.uid || req.employee?.user_id;
+    const userId = req.user?.id || req.employee?.user_id;
     const { name } = req.body;
 
     await transaction(async (conn) => {

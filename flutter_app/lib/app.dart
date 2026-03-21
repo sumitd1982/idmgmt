@@ -34,6 +34,7 @@ import 'screens/attendance/take_attendance_screen.dart';
 import 'screens/messaging/inbox_screen.dart';
 import 'screens/messaging/chat_screen.dart';
 import 'screens/settings/theme_settings_screen.dart';
+import 'providers/theme_provider.dart';
 import 'widgets/common/app_shell.dart';
 
 final _rootNavigatorKey   = GlobalKey<NavigatorState>();
@@ -166,6 +167,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/attendance-config', builder: (_, __) => const AttendanceConfigScreen()),
           GoRoute(path: '/take-attendance', builder: (_, __) => const TakeAttendanceScreen()),
           GoRoute(path: '/messaging',       builder: (_, __) => const InboxScreen()),
+          GoRoute(
             path: '/messaging/:id',
             builder: (_, s) => ChatScreen(conversationId: s.pathParameters['id']!),
           ),

@@ -21,7 +21,7 @@ const upload = multer({
 router.get('/', authenticate, async (req, res, next) => {
   try {
     const { status, school_id } = req.query;
-    const sid = school_id || req.employee?.school_id;
+    const sid = school_id || req.employee?.school_id || null;
     let where = ['rq.school_id = ?'];
     let params = [sid];
     if (status) { where.push('rq.status = ?'); params.push(status); }

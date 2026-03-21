@@ -919,7 +919,6 @@ class _OtpBox extends StatelessWidget {
             color: AppTheme.primary, // Dark text on white box
             fontSize: 24,
             fontWeight: FontWeight.w800),
-            fontWeight: FontWeight.w700),
         decoration: InputDecoration(
           counterText: '',
           filled: true,

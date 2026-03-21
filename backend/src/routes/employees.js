@@ -242,4 +242,127 @@ router.get('/org-tree/:school_id', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Employee Bulk Upload
+router.post('/bulk-upload', authenticate,
+  requireRole('super_admin','principal','vp','head_teacher'),
+  upload.single('file'),
+  async (req, res, next) => {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    const batchId = uuid();
+    const effectiveSchoolId = req.user.role === 'super_admin'
+      ? (req.body.school_id || req.employee?.school_id)
+      : req.employee?.school_id;
+    const branch_id = req.body.branch_id || req.employee?.branch_id || null;
+
+    if (!effectiveSchoolId) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(422).json({ success: false, message: 'school_id is required' });
+    }
+
+    try {
+      await query(
+        `INSERT INTO bulk_batches (id, school_id, branch_id, type, filename, status, uploaded_by)
+         VALUES (?, ?, ?, 'employees', ?, 'processing', ?)`,
+        [batchId, effectiveSchoolId, branch_id, req.file.originalname, req.user.id]
+      );
+
+      const wb = xlsx.readFile(req.file.path);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = xlsx.utils.sheet_to_json(ws, { defval: '' });
+
+      const errors = [];
+      const success = [];
+      const REQUIRED = ['employee_id', 'first_name', 'last_name', 'org_role_code'];
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNo = i + 2;
+
+        const missing = REQUIRED.filter(f => !row[f]?.toString().trim());
+        if (missing.length) {
+          errors.push({ row: rowNo, error: `Missing: ${missing.join(', ')}`, data: row });
+          continue;
+        }
+
+        // Check duplicate employee_id within school
+        const [dup] = await query(
+          'SELECT id FROM employees WHERE school_id = ? AND employee_id = ?',
+          [effectiveSchoolId, row.employee_id.toString().trim()]
+        );
+        if (dup) {
+          errors.push({ row: rowNo, error: `Duplicate employee_id: ${row.employee_id}`, data: row });
+          continue;
+        }
+
+        // Resolve org_role by code
+        const [roleRow] = await query(
+          'SELECT id FROM org_roles WHERE school_id = ? AND code = ? AND is_active = TRUE LIMIT 1',
+          [effectiveSchoolId, row.org_role_code?.toString().trim().toUpperCase()]
+        );
+        if (!roleRow) {
+          errors.push({ row: rowNo, error: `Unknown org_role_code: ${row.org_role_code}`, data: row });
+          continue;
+        }
+
+        try {
+          const empId = uuid();
+          await query(
+            `INSERT INTO employees (id, school_id, branch_id, employee_id, org_role_id,
+               first_name, last_name, gender, date_of_birth, email, phone, whatsapp_no,
+               date_of_joining, address_line1, city, state, country, zip_code,
+               qualification, specialization, bulk_upload_batch)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [empId, effectiveSchoolId, branch_id,
+             row.employee_id.toString().trim(),
+             roleRow.id,
+             row.first_name.toString().trim(),
+             row.last_name.toString().trim(),
+             row.gender?.toLowerCase() || null,
+             row.date_of_birth || null,
+             row.email || null,
+             row.phone || null,
+             row.whatsapp_no || row.phone || null,
+             row.date_of_joining || null,
+             row.address || null,
+             row.city || null,
+             row.state || null,
+             row.country || 'India',
+             row.zip_code || null,
+             row.qualification || null,
+             row.specialization || null,
+             batchId]
+          );
+          success.push(rowNo);
+        } catch (insertErr) {
+          errors.push({ row: rowNo, error: insertErr.message, data: row });
+        }
+      }
+
+      fs.unlinkSync(req.file.path);
+
+      await query(
+        `UPDATE bulk_batches SET status='completed', total_rows=?, success_rows=?, failed_rows=?, validation_report=?
+         WHERE id=?`,
+        [rows.length, success.length, errors.length, JSON.stringify(errors), batchId]
+      );
+
+      res.json({
+        success: true,
+        data: {
+          batch_id: batchId,
+          total: rows.length,
+          imported: success.length,
+          failed: errors.length,
+          errors: errors.slice(0, 50)
+        }
+      });
+    } catch (err) {
+      if (req.file) fs.unlink(req.file.path, () => {});
+      await query('UPDATE bulk_batches SET status=\'failed\' WHERE id=?', [batchId]);
+      next(err);
+    }
+  }
+);
+
 module.exports = router;
