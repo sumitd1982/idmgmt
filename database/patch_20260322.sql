@@ -6,23 +6,23 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 -- ── 1. Effective dates on employees ──────────────────────────
 ALTER TABLE employees
-  ADD COLUMN IF NOT EXISTS effective_start_date DATE NULL COMMENT 'Role effective from',
-  ADD COLUMN IF NOT EXISTS effective_end_date   DATE NULL COMMENT 'Role valid until';
+  ADD COLUMN effective_start_date DATE NULL COMMENT 'Role effective from',
+  ADD COLUMN effective_end_date   DATE NULL COMMENT 'Role valid until';
 
 -- ── 2. Effective dates on students ───────────────────────────
 ALTER TABLE students
-  ADD COLUMN IF NOT EXISTS effective_start_date DATE NULL COMMENT 'Enrollment effective from',
-  ADD COLUMN IF NOT EXISTS effective_end_date   DATE NULL COMMENT 'Enrollment valid until';
+  ADD COLUMN effective_start_date DATE NULL COMMENT 'Enrollment effective from',
+  ADD COLUMN effective_end_date   DATE NULL COMMENT 'Enrollment valid until';
 
 -- ── 3. Country field on schools (add if missing) ─────────────
 -- Already exists, but add state if not
 ALTER TABLE students
-  ADD COLUMN IF NOT EXISTS state   VARCHAR(100) NULL AFTER city,
-  ADD COLUMN IF NOT EXISTS country VARCHAR(100) NOT NULL DEFAULT 'India' AFTER state;
+  ADD COLUMN state   VARCHAR(100) NULL AFTER city,
+  ADD COLUMN country VARCHAR(100) NOT NULL DEFAULT 'India' AFTER state;
 
 -- ── 4. Country field on employees ────────────────────────────
 ALTER TABLE employees
-  ADD COLUMN IF NOT EXISTS country VARCHAR(100) NOT NULL DEFAULT 'India' AFTER is_active;
+  ADD COLUMN country VARCHAR(100) NOT NULL DEFAULT 'India' AFTER is_active;
 
 -- ── 5. Validation messages table (i18n-ready) ─────────────────
 CREATE TABLE IF NOT EXISTS validation_messages (
@@ -66,13 +66,13 @@ INSERT IGNORE INTO validation_messages (code, level, field, entity, message_en, 
 
 -- ── 7. ID card template enhancements ─────────────────────────
 ALTER TABLE id_card_themes
-  ADD COLUMN IF NOT EXISTS template_type ENUM('student','employee','both') NOT NULL DEFAULT 'student'
+  ADD COLUMN template_type ENUM('student','employee','both') NOT NULL DEFAULT 'student'
     COMMENT 'Who this template is for',
-  ADD COLUMN IF NOT EXISTS orientation   ENUM('portrait','landscape')       NOT NULL DEFAULT 'landscape'
+  ADD COLUMN orientation   ENUM('portrait','landscape')       NOT NULL DEFAULT 'landscape'
     COMMENT 'Card orientation',
-  ADD COLUMN IF NOT EXISTS terms_front   TEXT NULL COMMENT 'Free text / terms shown on front',
-  ADD COLUMN IF NOT EXISTS terms_back    TEXT NULL COMMENT 'T&C / instructions on back',
-  ADD COLUMN IF NOT EXISTS is_prebuilt   TINYINT(1) NOT NULL DEFAULT 0
+  ADD COLUMN terms_front   TEXT NULL COMMENT 'Free text / terms shown on front',
+  ADD COLUMN terms_back    TEXT NULL COMMENT 'T&C / instructions on back',
+  ADD COLUMN is_prebuilt   TINYINT(1) NOT NULL DEFAULT 0
     COMMENT '1 = system prebuilt template, 0 = school-created';
 
 -- ── 8. Seed 10 prebuilt templates ─────────────────────────────
