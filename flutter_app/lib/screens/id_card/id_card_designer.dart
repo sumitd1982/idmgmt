@@ -7,7 +7,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import '../../services/api_service.dart';
+import '../../providers/api_provider.dart';
 import '../../config/theme.dart';
 import 'dart:convert';
 
@@ -112,8 +112,8 @@ class _DesignerState {
 final idCardThemesProvider = FutureProvider<List<IdCardTheme>>((ref) async {
   final api = ref.read(apiServiceProvider);
   final res = await api.get('/idcards/themes');
-  if (res.isSuccess && res.data != null) {
-    return (res.data as List).map((t) => IdCardTheme.fromJson(t)).toList();
+  if (res['success'] == true && res['data'] != null) {
+    return (res['data'] as List).map((t) => IdCardTheme.fromJson(t)).toList();
   }
   return [];
 });
@@ -369,12 +369,12 @@ class _CardPreviewPanel extends ConsumerWidget {
                         'terms_back': state.termsBack,
                         'custom_fields': state.customFields.map((f) => {'label': f.label, 'value': f.value, 'position': f.position}).toList(),
                       };
-                      final res = await api.post('/idcards/themes', payload);
-                      if (res.isSuccess && context.mounted) {
+                      final res = await api.post('/idcards/themes', body: payload);
+                      if (res['success'] == true && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Theme saved successfully!')));
                         ref.invalidate(idCardThemesProvider);
                       } else if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.message ?? 'Failed to save theme'), backgroundColor: AppTheme.error));
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Failed to save theme'), backgroundColor: AppTheme.error));
                       }
                     } catch (e) {
                       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving theme: $e'), backgroundColor: AppTheme.error));

@@ -11,6 +11,8 @@ import 'package:file_picker/file_picker.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../services/api_service.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 // ── Models ────────────────────────────────────────────────────
 class StudentRecord {
@@ -711,7 +713,6 @@ class _StudentStatusBadge extends StatelessWidget {
 }
 
 // ── Bulk Upload Dialog ────────────────────────────────────────
-import 'package:intl/intl.dart';
 
 class _BulkUploadDialog extends StatefulWidget {
   const _BulkUploadDialog();
@@ -766,17 +767,17 @@ class _BulkUploadDialogState extends State<_BulkUploadDialog> {
         fileName: _file!.name,
       );
 
-      if (res.isSuccess && res.data != null) {
+      if (res['success'] == true && res['data'] != null) {
         setState(() {
           _isValidated = true;
-          _previewResults = res.data['results'] ?? [];
-          _totalOk = res.data['totalOk'] ?? 0;
-          _totalFail = res.data['totalFail'] ?? 0;
+          _previewResults = res['data']['results'] ?? [];
+          _totalOk = res['data']['totalOk'] ?? 0;
+          _totalFail = res['data']['totalFail'] ?? 0;
           _totalRows = _previewResults.length;
-          _canSubmit = res.data['canSubmit'] ?? false;
+          _canSubmit = res['data']['canSubmit'] ?? false;
         });
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.message ?? 'Validation failed'), backgroundColor: AppTheme.error));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Validation failed'), backgroundColor: AppTheme.error));
         setState(() => _file = null);
       }
     } catch (e) {
@@ -808,13 +809,13 @@ class _BulkUploadDialogState extends State<_BulkUploadDialog> {
         fileName: _file!.name,
       );
 
-      if (res.isSuccess) {
+      if (res['success'] == true) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Successfully imported ${res.data['inserted']} students'), backgroundColor: AppTheme.statusGreen));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Successfully imported ${res['data']?['inserted'] ?? 0} students'), backgroundColor: AppTheme.statusGreen));
           Navigator.of(context).pop(true);
         }
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.message ?? 'Upload failed'), backgroundColor: AppTheme.error));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Upload failed'), backgroundColor: AppTheme.error));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.error));
@@ -848,16 +849,11 @@ class _BulkUploadDialogState extends State<_BulkUploadDialog> {
 
   void _downloadTemplate() async {
     try {
-      final res = await ApiService().get('/students/bulk-template/download', responseType: 'bytes');
-      if (res.isSuccess && res.bytes != null) {
-        import('dart:html' as html).then((html) {
-          final blob = html.Blob([res.bytes]);
-          final url = html.Url.createObjectUrlFromBlob(blob);
-          final anchor = html.AnchorElement(href: url)
-            ..setAttribute('download', 'student_bulk_template.xlsx')
-            ..click();
-          html.Url.revokeObjectUrl(url);
-        });
+      final url = '${AppConstants.apiBaseUrl}/students/bulk-template/download';
+      if (await canLaunchUrlString(url)) {
+        await launchUrlString(url);
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not launch download URL'), backgroundColor: AppTheme.error));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error downloading template: $e'), backgroundColor: AppTheme.error));
@@ -954,7 +950,7 @@ class _BulkUploadDialogState extends State<_BulkUploadDialog> {
               if (!_canSubmit)
                 Container(
                   padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.bottom(16),
+                  margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(color: AppTheme.error.withOpacity(0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: AppTheme.error.withOpacity(0.3))),
                   child: Row(
                     children: [

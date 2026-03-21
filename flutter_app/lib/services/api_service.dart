@@ -87,4 +87,18 @@ class ApiService {
     final resp = await _dio.post(path, data: formData);
     return resp.data as Map<String, dynamic>;
   }
+
+  Future<Map<String, dynamic>> postMultipart(
+    String path,
+    Map<String, dynamic> data, {
+    required List<int> fileBytes,
+    required String fileName,
+  }) async {
+    final formData = FormData.fromMap({
+      ...data,
+      'file': MultipartFile.fromBytes(fileBytes, filename: fileName),
+    });
+    final resp = await _dio.post(path, data: formData);
+    return resp.data as Map<String, dynamic>;
+  }
 }
