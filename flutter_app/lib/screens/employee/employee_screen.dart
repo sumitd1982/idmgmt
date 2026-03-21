@@ -731,6 +731,8 @@ class _PermChip extends StatelessWidget {
 
 
 // ── Bulk Upload Dialog ────────────────────────────────────────
+import 'package:intl/intl.dart';
+
 class _BulkUploadDialog extends StatefulWidget {
   const _BulkUploadDialog();
 
@@ -740,88 +742,397 @@ class _BulkUploadDialog extends StatefulWidget {
 
 class _BulkUploadDialogState extends State<_BulkUploadDialog> {
   PlatformFile? _file;
-  bool _uploading = false;
+  bool _isLoading = false;
+  
+  // Validation state
+  bool _isValidated = false;
+  List<dynamic> _previewResults = [];
+  int _totalRows = 0;
+  int _totalOk = 0;
+  int _totalFail = 0;
+  bool _canSubmit = false;
+
+  // Effective dates
+  DateTime? _startDate;
+  DateTime? _endDate;
+
+  final NumberFormat _fmt = NumberFormat('#,###');
 
   Future<void> _pick() async {
     final result = await FilePicker.platform.pickFiles(
-      type:             FileType.custom,
+      type: FileType.custom,
       allowedExtensions: ['xlsx', 'xls', 'csv'],
+      withData: true,
     );
     if (result != null && result.files.isNotEmpty) {
-      setState(() => _file = result.files.first);
+      setState(() {
+        _file = result.files.first;
+        _isValidated = false;
+        _previewResults = [];
+      });
+      _validateFile();
+    }
+  }
+
+  Future<void> _validateFile() async {
+    if (_file == null || _file!.bytes == null) return;
+    setState(() => _isLoading = true);
+    
+    try {
+      final res = await ApiService().postMultipart(
+        '/employees/validate-bulk',
+        {},
+        fileBytes: _file!.bytes!,
+        fileName: _file!.name,
+      );
+
+      if (res.isSuccess && res.data != null) {
+        setState(() {
+          _isValidated = true;
+          _previewResults = res.data['results'] ?? [];
+          _totalOk = res.data['totalOk'] ?? 0;
+          _totalFail = res.data['totalFail'] ?? 0;
+          _totalRows = _previewResults.length;
+          _canSubmit = res.data['canSubmit'] ?? false;
+        });
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.message ?? 'Validation failed'), backgroundColor: AppTheme.error));
+        setState(() => _file = null);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.error));
+      setState(() => _file = null);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_file == null || _file!.bytes == null || !_canSubmit) return;
+    if (_startDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Effective Start Date is required'), backgroundColor: AppTheme.error));
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final fields = {
+        'effective_start_date': DateFormat('yyyy-MM-dd').format(_startDate!),
+        if (_endDate != null) 'effective_end_date': DateFormat('yyyy-MM-dd').format(_endDate!),
+      };
+      
+      final res = await ApiService().postMultipart(
+        '/employees/bulk',
+        fields,
+        fileBytes: _file!.bytes!,
+        fileName: _file!.name,
+      );
+
+      if (res.isSuccess) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Successfully imported ${res.data['inserted']} employees'), backgroundColor: AppTheme.statusGreen));
+          Navigator.of(context).pop(true);
+        }
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.message ?? 'Upload failed'), backgroundColor: AppTheme.error));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.error));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _pickDate(bool isStart) async {
+    final initial = isStart ? (_startDate ?? DateTime.now()) : (_endDate ?? (_startDate ?? DateTime.now()));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(primary: AppTheme.primary),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      setState(() {
+        if (isStart) _startDate = picked;
+        else _endDate = picked;
+      });
+    }
+  }
+
+  void _downloadTemplate() async {
+    try {
+      final res = await ApiService().get('/employees/bulk-template/download', responseType: 'bytes');
+      if (res.isSuccess && res.bytes != null) {
+        import('dart:html' as html).then((html) {
+          final blob = html.Blob([res.bytes]);
+          final url = html.Url.createObjectUrlFromBlob(blob);
+          final anchor = html.AnchorElement(href: url)
+            ..setAttribute('download', 'employee_bulk_template.xlsx')
+            ..click();
+          html.Url.revokeObjectUrl(url);
+        });
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error downloading template: $e'), backgroundColor: AppTheme.error));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Bulk Upload Employees',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-      content: SizedBox(
-        width: 380,
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 800,
+        height: 650,
+        padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            InkWell(
-              onTap:   _pick,
-              child: Container(
-                height:      100,
-                width:       double.infinity,
-                decoration:  BoxDecoration(
-                  border:       Border.all(color: AppTheme.grey300),
-                  borderRadius: BorderRadius.circular(10),
-                  color:        AppTheme.grey50,
+            Row(
+              children: [
+                Text('Bulk Upload Employees', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: AppTheme.grey900)),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _downloadTemplate,
+                  icon: const Icon(Icons.download, size: 16, color: AppTheme.primary),
+                  label: Text('Download Template', style: GoogleFonts.poppins(fontSize: 13, color: AppTheme.primary)),
                 ),
-                child: _file == null
-                    ? Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.cloud_upload_outlined,
-                              color: AppTheme.grey600, size: 32),
-                          Text('Click to select Excel / CSV',
-                              style: GoogleFonts.poppins(
-                                  fontSize: 12, color: AppTheme.grey600)),
-                        ],
-                      )
-                    : Padding(
+                const SizedBox(width: 8),
+                IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close)),
+              ],
+            ),
+            const Divider(),
+            
+            // Upload Dropzone
+            if (!_isValidated)
+              Expanded(
+                child: Center(
+                  child: InkWell(
+                    onTap: _isLoading ? null : _pick,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: 400,
+                      height: 200,
+                      decoration: BoxDecoration(
+                        color: AppTheme.grey50,
+                        border: Border.all(color: AppTheme.grey300, style: BorderStyle.solid),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: _isLoading 
+                        ? const Center(child: CircularProgressIndicator())
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.cloud_upload_outlined, size: 48, color: AppTheme.primary),
+                              const SizedBox(height: 16),
+                              Text('Click to select XLSX / CSV', style: GoogleFonts.poppins(fontSize: 14, color: AppTheme.grey800, fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 4),
+                              Text('Max file size: 20MB', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500)),
+                            ],
+                          ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // Validation Preview
+            if (_isValidated) ...[
+              Row(
+                children: [
+                   Container(
+                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                     decoration: BoxDecoration(color: AppTheme.grey100, borderRadius: BorderRadius.circular(8)),
+                     child: Row(
+                       children: [
+                         const Icon(Icons.file_present, size: 16, color: AppTheme.grey700),
+                         const SizedBox(width: 8),
+                         Text(_file?.name ?? '', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500)),
+                         const SizedBox(width: 12),
+                         InkWell(
+                           onTap: () => setState(() { _isValidated = false; _file = null; }),
+                           child: Text('Change File', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.primary, decoration: TextDecoration.underline)),
+                         )
+                       ],
+                     ),
+                   ),
+                   const Spacer(),
+                   _buildStat('Total', _totalRows, AppTheme.grey700),
+                   const SizedBox(width: 16),
+                   _buildStat('Valid', _totalOk, AppTheme.statusGreen),
+                   const SizedBox(width: 16),
+                   _buildStat('Errors', _totalFail, AppTheme.error),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (!_canSubmit)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.bottom(16),
+                  decoration: BoxDecoration(color: AppTheme.error.withOpacity(0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: AppTheme.error.withOpacity(0.3))),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: AppTheme.error, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text('Please fix the errors in your file and re-upload. Submitting is disabled while errors exist.', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.error))),
+                    ],
+                  ),
+                ),
+                
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(border: Border.all(color: AppTheme.grey200), borderRadius: BorderRadius.circular(8)),
+                  child: ListView.separated(
+                    itemCount: _previewResults.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final row = _previewResults[index];
+                      final isFail = row['status'] == 'failed';
+                      final isWarn = row['status'] == 'warning';
+                      final data = row['data'] ?? {};
+                      
+                      return Container(
+                        color: isFail ? AppTheme.error.withOpacity(0.05) : (isWarn ? Colors.orange.withOpacity(0.05) : Colors.transparent),
                         padding: const EdgeInsets.all(12),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.description,
-                                color: AppTheme.statusGreen, size: 28),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 40, child: Text('#${row['row']}', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey600))),
+                            Icon(isFail ? Icons.cancel : (isWarn ? Icons.warning : Icons.check_circle), size: 16, color: isFail ? AppTheme.error : (isWarn ? Colors.orange : AppTheme.statusGreen)),
+                            const SizedBox(width: 12),
                             Expanded(
-                              child: Text(_file!.name,
-                                  style: GoogleFonts.poppins(fontSize: 12)),
+                              flex: 2,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('${data['firstName']} ${data['lastName']}', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.grey900)),
+                                  Text('${data['empId']} • ${data['roleName']}', style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600)),
+                                ],
+                              ),
                             ),
-                            IconButton(
-                              onPressed: () => setState(() => _file = null),
-                              icon: const Icon(Icons.close, size: 16),
+                            Expanded(
+                              flex: 3,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (row['errors'] != null && (row['errors'] as List).isNotEmpty)
+                                    ...((row['errors'] as List).map((e) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                      const Padding(padding: EdgeInsets.only(top: 2, right: 6), child: Icon(Icons.circle, size: 6, color: AppTheme.error)),
+                                      Expanded(child: Text(e.toString(), style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.error))),
+                                    ]))),
+                                  if (row['warnings'] != null && (row['warnings'] as List).isNotEmpty)
+                                    ...((row['warnings'] as List).map((w) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                      const Padding(padding: EdgeInsets.only(top: 2, right: 6), child: Icon(Icons.circle, size: 6, color: Colors.orange)),
+                                      Expanded(child: Text(w.toString(), style: GoogleFonts.poppins(fontSize: 11, color: Colors.orange.shade800))),
+                                    ]))),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+
+              if (_canSubmit) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: AppTheme.grey50, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppTheme.grey200)),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Effective Start Date *', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 6),
+                            InkWell(
+                              onTap: () => _pickDate(true),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(border: Border.all(color: AppTheme.grey300), borderRadius: BorderRadius.circular(6), color: Colors.white),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.calendar_today, size: 16, color: AppTheme.grey600),
+                                    const SizedBox(width: 8),
+                                    Text(_startDate != null ? DateFormat('MMM dd, yyyy').format(_startDate!) : 'Select Date', style: GoogleFonts.poppins(fontSize: 13, color: _startDate != null ? AppTheme.grey900 : AppTheme.grey500)),
+                                  ],
+                                ),
+                              ),
                             ),
                           ],
                         ),
                       ),
-              ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Effective End Date (Optional)', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 6),
+                            InkWell(
+                              onTap: () => _pickDate(false),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(border: Border.all(color: AppTheme.grey300), borderRadius: BorderRadius.circular(6), color: Colors.white),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.calendar_today, size: 16, color: AppTheme.grey600),
+                                    const SizedBox(width: 8),
+                                    Text(_endDate != null ? DateFormat('MMM dd, yyyy').format(_endDate!) : 'Select Date', style: GoogleFonts.poppins(fontSize: 13, color: _endDate != null ? AppTheme.grey900 : AppTheme.grey500)),
+                                    if (_endDate != null) ...[
+                                      const Spacer(),
+                                      InkWell(onTap: () => setState(() => _endDate = null), child: const Icon(Icons.close, size: 14)),
+                                    ]
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: _isValidated && _canSubmit && _startDate != null && !_isLoading ? _submit : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  child: _isLoading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                                    : const Text('Submit Data', style: TextStyle(color: Colors.white)),
+                ),
+              ],
             ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: _uploading || _file == null
-              ? null
-              : () async {
-                  setState(() => _uploading = true);
-                  await Future.delayed(const Duration(seconds: 2));
-                  if (!mounted) return;
-                  Navigator.of(context).pop();
-                },
-          child: Text(_uploading ? 'Uploading...' : 'Upload'),
-        ),
+    );
+  }
+
+  Widget _buildStat(String label, int count, Color color) {
+    return Column(
+      children: [
+        Text(_fmt.format(count), style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
+        Text(label, style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600)),
       ],
     );
   }
