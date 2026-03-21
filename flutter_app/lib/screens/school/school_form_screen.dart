@@ -42,7 +42,7 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
   final _codeCtrl         = TextEditingController();
   final _regNoCtrl        = TextEditingController();
   final _affiliationCtrl  = TextEditingController();
-  String? _schoolType;     // primary | secondary | higher_secondary | k12
+  String? _schoolType = 'private'; // government | private | aided | international
 
   // Contact
   final _phoneCtrl        = TextEditingController();
@@ -357,10 +357,10 @@ class _BasicInfoTab extends StatelessWidget {
                   decoration: const InputDecoration(labelText: 'School Type'),
                   style: GoogleFonts.poppins(fontSize: 13, color: AppTheme.grey900),
                   items: const [
-                    DropdownMenuItem(value: 'primary',          child: Text('Primary (1–5)')),
-                    DropdownMenuItem(value: 'secondary',        child: Text('Secondary (6–10)')),
-                    DropdownMenuItem(value: 'higher_secondary', child: Text('Higher Secondary (11–12)')),
-                    DropdownMenuItem(value: 'k12',              child: Text('K–12 (1–12)')),
+                    DropdownMenuItem(value: 'private',       child: Text('Private')),
+                    DropdownMenuItem(value: 'government',    child: Text('Government')),
+                    DropdownMenuItem(value: 'aided',         child: Text('Aided')),
+                    DropdownMenuItem(value: 'international', child: Text('International')),
                   ],
                   onChanged: onTypeChanged,
                 ),
