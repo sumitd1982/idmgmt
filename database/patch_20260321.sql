@@ -6,10 +6,12 @@ USE idmgmt;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 1. Add permissions JSON to org_roles
-ALTER TABLE org_roles ADD COLUMN IF NOT EXISTS permissions JSON NULL COMMENT '{"can_manage_attendance": true, ...}' AFTER description;
+-- (Note: MySQL 8.0 doesn't support ADD COLUMN IF NOT EXISTS. 
+-- If the column already exists, this command will fail gracefully with the pipe command below)
+ALTER TABLE org_roles ADD COLUMN permissions JSON NULL COMMENT '{"can_manage_attendance": true}' AFTER description;
 
 -- 2. Add settings JSON to schools
-ALTER TABLE schools ADD COLUMN IF NOT EXISTS settings JSON NULL COMMENT '{"is_messaging_enabled": true}';
+ALTER TABLE schools ADD COLUMN settings JSON NULL COMMENT '{"is_messaging_enabled": true}';
 
 -- 3. Employee Extra Roles Mapping
 CREATE TABLE IF NOT EXISTS employee_extra_roles (
