@@ -29,12 +29,14 @@ router.get('/modules', authenticate, async (req, res, next) => {
 // POST /attendance/modules (Create new module)
 router.post('/modules', authenticate, requireRole('super_admin', 'principal', 'vp'), async (req, res, next) => {
   try {
-    const schoolId = req.employee?.school_id || req.body.school_id;
     const { name, type, is_active = true } = req.body;
+    // SuperAdmin must provide school_id, others use their session school_id
+    const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.employee?.school_id;
 
+    if (!schoolId) return res.status(400).json({ success: false, message: 'school_id is required' });
     if (!name || !type) return res.status(400).json({ success: false, message: 'Name and Type required' });
 
-    const [result] = await query(
+    await query(
       `INSERT INTO attendance_modules (school_id, name, type, is_active)
        VALUES (?, ?, ?, ?)`,
       [schoolId, name, type, is_active]

@@ -205,7 +205,10 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen>
         }
       }
 
+      final user = ref.read(appUserProvider).value;
       final body = {
+        'school_id':     user?.employee?.schoolId,
+        'branch_id':     user?.employee?.branchId,
         'first_name':    _firstNameCtrl.text.trim(),
         'last_name':     _lastNameCtrl.text.trim(),
         'date_of_birth': _dobCtrl.text.trim(),

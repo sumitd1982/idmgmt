@@ -219,34 +219,39 @@ class DesignerState {
   final bool isLoading;
   final String? error;
   final double zoom;
-  final String? schoolId;
-  // Workflow audit
-  final DateTime? submittedAt;
-  final DateTime? checkedAt;
-  final DateTime? approvedAt;
-  final String? checkNotes;
-  final String? approvalNotes;
-
-  const DesignerState({
-    this.templateId,
-    this.templateName = 'New Template',
-    this.templateType = 'student',
-    this.status       = 'draft',
-    this.currentSide  = 'front',
-    this.elements     = const [],
-    this.selectedElementId,
-    this.isDirty      = false,
-    this.isSaving     = false,
-    this.isLoading    = false,
-    this.error,
-    this.zoom         = 1.0,
-    this.schoolId,
-    this.submittedAt,
-    this.checkedAt,
-    this.approvedAt,
-    this.checkNotes,
-    this.approvalNotes,
-  });
+    final String? schoolId;
+    // Workflow audit
+    final DateTime? submittedAt;
+    final DateTime? checkedAt;
+    final DateTime? approvedAt;
+    final String? checkNotes;
+    final String? approvalNotes;
+    // History
+    final List<List<TemplateElement>> history;
+    final int historyIndex;
+  
+    const DesignerState({
+      this.templateId,
+      this.templateName = 'New Template',
+      this.templateType = 'student',
+      this.status       = 'draft',
+      this.currentSide  = 'front',
+      this.elements     = const [],
+      this.selectedElementId,
+      this.isDirty      = false,
+      this.isSaving     = false,
+      this.isLoading    = false,
+      this.error,
+      this.zoom         = 1.0,
+      this.schoolId,
+      this.submittedAt,
+      this.checkedAt,
+      this.approvedAt,
+      this.checkNotes,
+      this.approvalNotes,
+      this.history      = const [],
+      this.historyIndex = -1,
+    });
 
   DesignerState copyWith({
     String? templateId,
@@ -268,6 +273,8 @@ class DesignerState {
     DateTime? approvedAt,
     String? checkNotes,
     String? approvalNotes,
+    List<List<TemplateElement>>? history,
+    int? historyIndex,
   }) => DesignerState(
         templateId:         templateId         ?? this.templateId,
         templateName:       templateName       ?? this.templateName,
@@ -287,6 +294,8 @@ class DesignerState {
         approvedAt:         approvedAt         ?? this.approvedAt,
         checkNotes:         checkNotes         ?? this.checkNotes,
         approvalNotes:      approvalNotes      ?? this.approvalNotes,
+        history:            history            ?? this.history,
+        historyIndex:       historyIndex       ?? this.historyIndex,
       );
 
   List<TemplateElement> get sideElements =>
@@ -337,6 +346,8 @@ class DesignerNotifier extends StateNotifier<DesignerState> {
         approvedAt:    tmpl.approvedAt,
         checkNotes:    tmpl.checkNotes,
         approvalNotes: tmpl.approvalNotes,
+        history:      [elems],
+        historyIndex: 0,
       );
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -361,12 +372,14 @@ class DesignerNotifier extends StateNotifier<DesignerState> {
   void addElement(TemplateElement element) {
     final updated = [...state.elements, element];
     state = state.copyWith(elements: updated, selectedElementId: element.id, isDirty: true);
+    _recordHistory(updated);
     _scheduleAutoSave();
   }
 
   void updateElement(String id, TemplateElement Function(TemplateElement) updater) {
     final updated = state.elements.map((e) => e.id == id ? updater(e) : e).toList();
     state = state.copyWith(elements: updated, isDirty: true);
+    _recordHistory(updated);
     _scheduleAutoSave();
   }
 
@@ -377,6 +390,7 @@ class DesignerNotifier extends StateNotifier<DesignerState> {
       isDirty:  true,
       clearSelected: state.selectedElementId == id,
     );
+    _recordHistory(updated);
     _scheduleAutoSave();
   }
 
@@ -414,12 +428,47 @@ class DesignerNotifier extends StateNotifier<DesignerState> {
         final newId = resp['data']?['id'] as String?;
         state = state.copyWith(templateId: newId);
       }
-      state = state.copyWith(isSaving: false, isDirty: false);
+    state = state.copyWith(isSaving: false, isDirty: false);
       return true;
     } catch (e) {
       state = state.copyWith(isSaving: false, error: e.toString());
       return false;
     }
+  }
+
+  void _recordHistory(List<TemplateElement> elements) {
+    final history = List<List<TemplateElement>>.from(state.history.take(state.historyIndex + 1));
+    history.add(List<TemplateElement>.from(elements));
+    if (history.length > 50) history.removeAt(0);
+    state = state.copyWith(history: history, historyIndex: history.length - 1);
+  }
+
+  void undo() {
+    if (state.historyIndex > 0) {
+      final idx = state.historyIndex - 1;
+      state = state.copyWith(
+        elements: state.history[idx],
+        historyIndex: idx,
+        isDirty: true,
+      );
+    }
+  }
+
+  void redo() {
+    if (state.historyIndex < state.history.length - 1) {
+      final idx = state.historyIndex + 1;
+      state = state.copyWith(
+        elements: state.history[idx],
+        historyIndex: idx,
+        isDirty: true,
+      );
+    }
+  }
+
+  void applyPreset(List<TemplateElement> elements) {
+    state = state.copyWith(elements: elements, isDirty: true, clearSelected: true);
+    _recordHistory(elements);
+    _scheduleAutoSave();
   }
 
   Future<void> submitForCheck() async {
@@ -2458,5 +2507,131 @@ class _WorkflowAuditTrail extends StatelessWidget {
     const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return '${m[dt.month-1]} ${dt.day}, ${dt.year} ${dt.hour.toString().padLeft(2,'0')}:${dt.minute.toString().padLeft(2,'0')}';
   }
+}
+
+List<TemplateElement> _generatePreset(int index, String templateId) {
+  final List<TemplateElement> elements = [];
+  final isEmployee = index >= 5;
+  final i = index % 5;
+  
+  final colors = [
+    '#1A237E', '#004D40', '#B71C1C', '#01579B', '#311B92',
+  ];
+  final primaryColor = colors[i];
+
+  // Photo
+  elements.add(TemplateElement(
+    id: 'photo_1',
+    side: 'front',
+    elementType: 'photo',
+    xPct: i.isEven ? 35 : 10,
+    yPct: 20,
+    wPct: 30,
+    hPct: 45,
+    borderRadius: 8,
+    borderColor: primaryColor,
+    borderWidth: 2,
+  ));
+
+  // School Name
+  elements.add(TemplateElement(
+    id: 'school_name',
+    side: 'front',
+    elementType: 'data_field',
+    fieldSource: 'school',
+    fieldKey: 'school_name',
+    xPct: 5,
+    yPct: 5,
+    wPct: 90,
+    hPct: 10,
+    fontSize: 14,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    fontColor: primaryColor,
+  ));
+
+  // Name Field
+  elements.add(TemplateElement(
+    id: 'name_field',
+    side: 'front',
+    elementType: 'data_field',
+    fieldSource: isEmployee ? 'employee' : 'student',
+    fieldKey: 'full_name',
+    xPct: 5,
+    yPct: 70,
+    wPct: 90,
+    hPct: 8,
+    fontSize: 12,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  ));
+
+  // ID Field
+  elements.add(TemplateElement(
+    id: 'id_field',
+    side: 'front',
+    elementType: 'data_field',
+    fieldSource: isEmployee ? 'employee' : 'student',
+    fieldKey: isEmployee ? 'employee_id' : 'student_id',
+    xPct: 5,
+    yPct: 80,
+    wPct: 90,
+    hPct: 6,
+    fontSize: 10,
+    textAlign: 'center',
+    fontColor: '#424242',
+  ));
+
+  // Logo
+  elements.add(TemplateElement(
+    id: 'logo_1',
+    side: 'front',
+    elementType: 'logo',
+    xPct: 5,
+    yPct: 5,
+    wPct: 12,
+    hPct: 12,
+  ));
+
+  // Barcode
+  elements.add(TemplateElement(
+    id: 'barcode_1',
+    side: 'front',
+    elementType: 'barcode',
+    xPct: 25,
+    yPct: 88,
+    wPct: 50,
+    hPct: 8,
+  ));
+
+  // Back side
+  elements.add(TemplateElement(
+    id: 'back_header',
+    side: 'back',
+    elementType: 'static_text',
+    staticContent: 'TERMS & CONDITIONS',
+    xPct: 5,
+    yPct: 10,
+    wPct: 90,
+    hPct: 8,
+    fontSize: 10,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  ));
+
+  elements.add(TemplateElement(
+    id: 'back_text',
+    side: 'back',
+    elementType: 'static_text',
+    staticContent: '1. This card is non-transferable.\n2. Report loss to office.\n3. Return if found.',
+    xPct: 5,
+    yPct: 25,
+    wPct: 90,
+    hPct: 30,
+    fontSize: 8,
+    textAlign: 'left',
+  ));
+
+  return elements;
 }
 

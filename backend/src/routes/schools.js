@@ -10,6 +10,7 @@ const { body, param, query: qv, validationResult } = require('express-validator'
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.error('Validation Errors for School Creation:', JSON.stringify(errors.array(), null, 2));
     return res.status(422).json({ success: false, errors: errors.array() });
   }
   next();
@@ -84,13 +85,13 @@ router.post('/',
   requireRole('super_admin'),
   [
     body('name').notEmpty().trim().isLength({ max: 255 }),
-    body('code').notEmpty().trim().toUpperCase().isAlphanumeric().isLength({ max: 20 }),
+    body('code').notEmpty().trim().toUpperCase().isLength({ max: 20 }),
     body('address_line1').notEmpty().trim(),
     body('city').notEmpty().trim(),
     body('state').notEmpty().trim(),
     body('country').notEmpty().trim(),
     body('zip_code').notEmpty().trim(),
-    body('phone1').notEmpty().trim().isMobilePhone(),
+    body('phone1').notEmpty().trim(),
     body('email').notEmpty().trim().isEmail().normalizeEmail(),
   ],
   validate,

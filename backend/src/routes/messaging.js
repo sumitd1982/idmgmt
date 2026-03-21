@@ -52,8 +52,12 @@ router.get('/', authenticate, async (req, res, next) => {
       if (!req.employee) return res.status(403).json({ success: false, message: 'Employee profile not found' });
       
       if (['super_admin', 'school_admin', 'principal'].includes(req.user.role)) {
-         whereClause = 'c.school_id = ?'; // Admins see all for their school
-         whereParams.push(req.employee.school_id);
+         // SuperAdmins can pass school_id in query, others use their session school_id
+         const schoolId = req.user.role === 'super_admin' ? req.query.school_id : req.employee?.school_id;
+         if (!schoolId) return res.status(400).json({ success: false, message: 'school_id query param required for this role' });
+         
+         whereClause = 'c.school_id = ?';
+         whereParams.push(schoolId);
       } else {
          whereClause = 'c.employee_id = ?'; // Teachers see only theirs
          whereParams.push(req.employee.id);

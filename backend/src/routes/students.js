@@ -153,17 +153,36 @@ router.post('/', authenticate, async (req, res, next) => {
             email, address_line1, city, state, zip_code, guardians = [] } = req.body;
 
     // Security: Only super_admin can specify a school_id for other schools
-    const effectiveSchoolId = req.user.role === 'super_admin' 
-      ? (school_id || req.employee?.school_id) 
-      : req.employee?.school_id;
+    let effectiveSchoolId;
+    if (req.user.role === 'super_admin') {
+      effectiveSchoolId = school_id || req.employee?.school_id;
+    } else if (['school_admin', 'principal'].includes(req.user.role)) {
+      effectiveSchoolId = req.employee?.school_id;
+      if (school_id && school_id !== effectiveSchoolId) {
+        return res.status(403).json({ success: false, message: 'Not authorized to create students in other schools' });
+      }
+    } else {
+      effectiveSchoolId = req.employee?.school_id;
+    }
 
     const effectiveBranchId = branch_id || req.employee?.branch_id;
 
-    if (!effectiveSchoolId) {
-      return res.status(422).json({ success: false, message: 'school_id is required' });
-    }
     if (!effectiveSchoolId || !effectiveBranchId || !first_name || !gender || !class_name || !section) {
-      return res.status(422).json({ success: false, message: 'Required fields missing: school_id, branch_id, first_name, gender, class_name, section' });
+      console.error('[Validation Error] POST /students missing fields:', {
+        effectiveSchoolId, effectiveBranchId, first_name, gender, class_name, section
+      });
+      return res.status(422).json({ 
+        success: false, 
+        message: 'Required fields missing: school_id, branch_id, first_name, gender, class_name, section',
+        missing: {
+          school_id: !effectiveSchoolId,
+          branch_id: !effectiveBranchId,
+          first_name: !first_name,
+          gender: !gender,
+          class_name: !class_name,
+          section: !section
+        }
+      });
     }
 
     const id = uuid();
