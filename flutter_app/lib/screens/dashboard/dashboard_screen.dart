@@ -1028,7 +1028,7 @@ class _OnboardingStep extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios, size: 14, color: AppTheme.grey400),
+              const Icon(Icons.arrow_forward_ios, size: 14, color: AppTheme.grey300),
             ],
           ),
         ),

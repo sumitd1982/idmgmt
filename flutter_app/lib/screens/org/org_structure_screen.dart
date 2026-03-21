@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../services/api_service.dart';
@@ -166,7 +167,10 @@ class OrgStructureScreen extends ConsumerWidget {
                     const VerticalDivider(width: 1),
                     SizedBox(
                       width: 280,
-                      child: _NodeDetailPanel(node: selected),
+                      child: _NodeDetailPanel(
+                        node: selected,
+                        selectedSchoolId: selectedSchool,
+                      ),
                     ),
                   ],
                 ],
@@ -177,7 +181,7 @@ class OrgStructureScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push(
-          '/employees/new?schoolId=${selectedSchoolId ?? ''}&branchId=${branchFilter ?? ''}',
+          '/employees/new?schoolId=${selectedSchool ?? ''}&branchId=${branchFilter ?? ''}',
         ),
         icon: const Icon(Icons.person_add),
         label: const Text('Add Employee'),
@@ -532,7 +536,8 @@ class _TreeLinePainter extends CustomPainter {
 // ── Node Detail Panel ─────────────────────────────────────────
 class _NodeDetailPanel extends ConsumerWidget {
   final OrgNode node;
-  const _NodeDetailPanel({required this.node});
+  final String? selectedSchoolId;
+  const _NodeDetailPanel({required this.node, this.selectedSchoolId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

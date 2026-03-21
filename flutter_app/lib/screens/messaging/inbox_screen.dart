@@ -148,7 +148,7 @@ class _NewQueryDialogState extends ConsumerState<_NewQueryDialog> {
       setState(() => _employees = []);
       final resp = await ApiService().get('/employees', params: {
         'school_id': schoolId,
-        if (branch_id != null) 'branch_id': branchId,
+        if (branchId != null) 'branch_id': branchId,
       });
       if (!mounted) return;
       setState(() {

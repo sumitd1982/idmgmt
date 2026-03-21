@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../providers/auth_provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:typed_data';
 import '../../config/theme.dart';
@@ -205,7 +206,7 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen>
         }
       }
 
-      final user = ref.read(appUserProvider).value;
+      final user = ref.read(authNotifierProvider).value;
       final body = {
         'school_id':     user?.employee?.schoolId,
         'branch_id':     user?.employee?.branchId,
