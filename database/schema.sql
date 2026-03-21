@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS schools (
     banner_url      VARCHAR(1024),
     affiliation_no  VARCHAR(100),
     affiliation_board VARCHAR(100),
-    school_type     ENUM('government','private','aided','international') DEFAULT 'private',
+    school_type     ENUM('primary','secondary','higher_secondary','k12') DEFAULT 'primary',
     -- Address
     address_line1   VARCHAR(255)  NOT NULL,
     address_line2   VARCHAR(255),

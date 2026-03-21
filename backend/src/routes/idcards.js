@@ -9,9 +9,11 @@ const fs   = require('fs');
 
 router.get('/themes', authenticate, async (req, res, next) => {
   try {
-    const schoolId = req.query.school_id || req.employee?.school_id;
+    const schoolId = req.query.school_id || req.employee?.school_id || req.user.school_id;
     const themes = await query(
-      'SELECT * FROM id_card_themes WHERE school_id = ? AND is_active = TRUE ORDER BY is_default DESC, name',
+      `SELECT * FROM id_card_themes 
+       WHERE (school_id = ? OR is_prebuilt = TRUE) AND is_active = TRUE 
+       ORDER BY is_prebuilt DESC, is_default DESC, name`,
       [schoolId]
     );
     res.json({ success: true, data: themes });
@@ -22,21 +24,27 @@ router.post('/themes', authenticate, async (req, res, next) => {
   try {
     const id = uuid();
     const { school_id, name, description, primary_color, secondary_color, accent_color,
-            text_color, bg_color, front_layout, back_layout, custom_fields, is_default } = req.body;
+            text_color, bg_color, front_layout, back_layout, custom_fields, is_default,
+            template_type, orientation, terms_front, terms_back } = req.body;
+
+    // Safety fallback
+    const effectiveSchoolId = school_id || req.employee?.school_id || req.user.school_id;
 
     if (is_default) {
-      await query('UPDATE id_card_themes SET is_default=FALSE WHERE school_id=?', [school_id]);
+      await query('UPDATE id_card_themes SET is_default=FALSE WHERE school_id=?', [effectiveSchoolId]);
     }
 
     await query(
       `INSERT INTO id_card_themes (id,school_id,name,description,primary_color,secondary_color,
-         accent_color,text_color,bg_color,front_layout,back_layout,custom_fields,is_default)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [id, school_id, name, description,
+         accent_color,text_color,bg_color,front_layout,back_layout,custom_fields,is_default,
+         template_type, orientation, terms_front, terms_back, is_prebuilt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,FALSE)`,
+      [id, effectiveSchoolId, name, description,
        primary_color || '#003087', secondary_color || '#1565C0', accent_color || '#FFC107',
        text_color || '#212121', bg_color || '#FFFFFF',
        JSON.stringify(front_layout || {}), JSON.stringify(back_layout || {}),
-       JSON.stringify(custom_fields || []), is_default || false]
+       JSON.stringify(custom_fields || []), is_default || false,
+       template_type || 'student', orientation || 'landscape', terms_front, terms_back]
     );
 
     const [theme] = await query('SELECT * FROM id_card_themes WHERE id=?', [id]);

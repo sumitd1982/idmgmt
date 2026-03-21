@@ -290,147 +290,206 @@ router.delete('/:id', authenticate, requireRole('super_admin','school_owner','pr
   } catch (err) { next(err); }
 });
 
-// ── POST /students/bulk-upload ────────────────────────────────
-router.post('/bulk-upload', authenticate,
-  requireRole('super_admin','principal','vp','head_teacher'),
-  upload.single('file'),
-  async (req, res, next) => {
-    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+// ── BULK UPLOAD ROUTES ────────────────────────────────────────
 
-    const batchId  = uuid();
-    const { school_id, branch_id } = req.body;
-
-    try {
-      // Record batch
-      await query(
-        `INSERT INTO bulk_batches (id, school_id, branch_id, type, filename, status, uploaded_by)
-         VALUES (?, ?, ?, 'students', ?, 'processing', ?)`,
-        [batchId, school_id, branch_id, req.file.originalname, req.user.id]
-      );
-
-      const wb   = xlsx.readFile(req.file.path);
-      const ws   = wb.Sheets[wb.SheetNames[0]];
-      const rows = xlsx.utils.sheet_to_json(ws, { defval: '' });
-
-      const errors  = [];
-      const success = [];
-
-      const REQUIRED = ['first_name','last_name','gender','class_name','section','student_id'];
-
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const rowNo = i + 2; // header is row 1
-
-        // Validate required
-        const missing = REQUIRED.filter(f => !row[f]?.toString().trim());
-        if (missing.length) {
-          errors.push({ row: rowNo, error: `Missing: ${missing.join(', ')}`, data: row });
-          continue;
-        }
-
-        // Validate gender
-        if (!['male','female','other'].includes(row.gender?.toLowerCase())) {
-          errors.push({ row: rowNo, error: 'Invalid gender (male/female/other)', data: row });
-          continue;
-        }
-
-        // Check duplicate student_id within school
-        const [dup] = await query(
-          'SELECT id FROM students WHERE school_id = ? AND student_id = ?',
-          [school_id, row.student_id]
-        );
-        if (dup) {
-          errors.push({ row: rowNo, error: `Duplicate student_id: ${row.student_id}`, data: row });
-          continue;
-        }
-
-        try {
-          const sid = uuid();
-          await query(
-            `INSERT INTO students (id, school_id, branch_id, student_id, roll_number,
-               class_name, section, first_name, last_name, middle_name, date_of_birth,
-               gender, blood_group, nationality, category, aadhaar_no,
-               address_line1, city, state, country, zip_code,
-               bus_route, bus_stop, bulk_upload_batch)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [sid, school_id, branch_id,
-             row.student_id?.toString().trim(), row.roll_number?.toString().trim(),
-             row.class_name?.toString().trim(), row.section?.toString().trim(),
-             row.first_name?.toString().trim(), row.last_name?.toString().trim(),
-             row.middle_name?.toString().trim() || null,
-             row.date_of_birth || null,
-             row.gender?.toLowerCase(), row.blood_group || null,
-             row.nationality || 'Indian', row.category || null, row.aadhaar_no || null,
-             row.address || null, row.city || null, row.state || null,
-             row.country || 'India', row.zip_code || null,
-             row.bus_route || null, row.bus_stop || null, batchId]
-          );
-
-          // Mother guardian
-          if (row.mother_name || row.mother_phone) {
-            const nameParts = (row.mother_name || '').split(' ');
-            await query(
-              `INSERT INTO guardians (id, student_id, guardian_type, first_name, last_name,
-                 phone, whatsapp_no, email, is_primary, same_as_student)
-               VALUES (?,?,'mother',?,?,?,?,?,TRUE,TRUE)`,
-              [uuid(), sid, nameParts[0] || null, nameParts.slice(1).join(' ') || null,
-               row.mother_phone || null, row.mother_whatsapp || row.mother_phone || null,
-               row.mother_email || null]
-            );
-          }
-
-          success.push(rowNo);
-        } catch (insertErr) {
-          errors.push({ row: rowNo, error: insertErr.message, data: row });
-        }
-      }
-
-      // Clean up temp file
-      fs.unlinkSync(req.file.path);
-
-      // Update batch status
-      await query(
-        `UPDATE bulk_batches SET status='completed', total_rows=?, success_rows=?, failed_rows=?, validation_report=?
-         WHERE id=?`,
-        [rows.length, success.length, errors.length, JSON.stringify(errors), batchId]
-      );
-
-      res.json({
-        success: true,
-        data: {
-          batch_id: batchId,
-          total: rows.length,
-          imported: success.length,
-          failed: errors.length,
-          errors: errors.slice(0, 50) // return first 50 errors
-        }
-      });
-    } catch (err) {
-      if (req.file) fs.unlink(req.file.path, () => {});
-      await query('UPDATE bulk_batches SET status=\'failed\' WHERE id=?', [batchId]);
-      next(err);
-    }
-  }
-);
-
-// ── GET /students/bulk-template ───────────────────────────────
+// GET /students/bulk-template/download  → 100-row sample XLSX
 router.get('/bulk-template/download', authenticate, async (req, res, next) => {
   try {
     const wb = xlsx.utils.book_new();
-    const headers = [
-      ['student_id','first_name','last_name','middle_name','gender','date_of_birth','class_name',
-       'section','roll_number','blood_group','nationality','religion','category','aadhaar_no',
-       'admission_no','address','city','state','zip_code','country','bus_route','bus_stop',
-       'mother_name','mother_phone','mother_whatsapp','mother_email',
-       'father_name','father_phone','father_email']
+
+    // Instructions sheet
+    const instr = [
+      ['STUDENT BULK UPLOAD TEMPLATE'],
+      ['Fields marked * are mandatory.'],
+      ['Date format: YYYY-MM-DD'],
+      ['gender: male | female | other'],
+      ['guardian_phone is required.'],
+      ['country: defaults to India if blank'],
+      [''],
     ];
-    const ws = xlsx.utils.aoa_to_sheet(headers);
-    xlsx.utils.book_append_sheet(wb, ws, 'Students');
+    const instrWs = xlsx.utils.aoa_to_sheet(instr);
+    xlsx.utils.book_append_sheet(wb, instrWs, 'Instructions');
+
+    // Sample data sheet
+    const headers = [
+      'student_id*', 'first_name*', 'last_name*', 'gender*',
+      'date_of_birth*', 'class_name*', 'section*', 'roll_number',
+      'blood_group', 'nationality', 'religion', 'category', 'aadhaar_no',
+      'address_line1', 'city', 'state', 'country', 'zip_code',
+      'bus_route', 'bus_stop',
+      'guardian_type*', 'guardian_name*', 'guardian_phone*', 'guardian_email',
+      'effective_start_date', 'effective_end_date',
+    ];
+
+    const FIRST = ['Aarav','Priya','Rahul','Sunita','Amit','Kavita','Rohit','Neha','Vivaan','Meena'];
+    const LAST  = ['Sharma','Verma','Gupta','Singh','Patel','Kumar','Mehta','Joshi','Yadav','Tiwari'];
+
+    const rows = [headers];
+    for (let i = 1; i <= 100; i++) {
+      const fn = FIRST[i % 10]; const ln = LAST[i % 10];
+      const cls = (i % 12) + 1;
+      const sec = ['A','B','C'][i % 3];
+      rows.push([
+        `STU-2026-${String(i).padStart(4,'0')}`, fn, ln, i%2===0?'male':'female',
+        `201${(i%5)+2}-0${(i%9)+1}-15`,
+        `Class ${cls}`, sec, i,
+        ['A+','B+','O+','AB+'][i%4], 'Indian', 'Hindu', 'General', `1234567890${String(i).padStart(2,'0')}`,
+        `House ${i}, Sector ${(i%30)+1}`, 'Noida', 'Uttar Pradesh', 'India',
+        `201${String((i%900)+100)}`,
+        i%2===0 ? 'Route A' : '', i%2===0 ? 'Stop X' : '',
+        'father', `${FIRST[(i+1)%10]} ${ln}`, `+9198${String(i).padStart(8,'0')}`,
+        `${fn.toLowerCase()}_parent@example.com`,
+        '2026-04-01', '2027-03-31',
+      ]);
+    }
+    xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet(rows), 'Students (100 samples)');
+
     const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Disposition', 'attachment; filename="student_upload_template.xlsx"');
+    res.setHeader('Content-Disposition', 'attachment; filename="student_bulk_template.xlsx"');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buf);
   } catch (err) { next(err); }
+});
+
+// POST /students/validate-bulk  → per-row validation (no DB write)
+router.post('/validate-bulk', authenticate, upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    // Load validation messages from DB
+    const dbMsgs = await query('SELECT code, message_en FROM validation_messages WHERE entity IN (?,?)', ['student','general']);
+    const msg = {};
+    dbMsgs.forEach(r => { msg[r.code] = r.message_en; });
+    const m = (code, fallback) => msg[code] || fallback;
+
+    const wb = xlsx.readFile(req.file.path);
+    const sheetName = wb.SheetNames.find(n => n !== 'Instructions') || wb.SheetNames[0];
+    const rows = xlsx.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+
+    const effectiveSchoolId = req.employee?.school_id || req.user.school_id;
+    const existingIds = new Set(
+      (await query('SELECT student_id FROM students WHERE school_id = ?', [effectiveSchoolId]))
+        .map(r => r.student_id)
+    );
+
+    const phoneRe  = /^[+]?[6-9]\d{9,14}$/;
+
+    const results = rows.map((row, idx) => {
+      const errors = []; const warnings = [];
+      const stuId    = String(row['student_id*'] || row['student_id'] || '').trim();
+      const firstName= String(row['first_name*'] || row['first_name'] || '').trim();
+      const lastName = String(row['last_name*']  || row['last_name']  || '').trim();
+      const gender   = String(row['gender*']     || row['gender']     || '').trim().toLowerCase();
+      const dob      = String(row['date_of_birth*'] || row['date_of_birth'] || '').trim();
+      const cls      = String(row['class_name*'] || row['class_name'] || '').trim();
+      const sec      = String(row['section*']    || row['section']    || '').trim();
+      const gPhone   = String(row['guardian_phone*'] || row['guardian_phone'] || '').trim();
+
+      if (!stuId)                 errors.push(m('ERR_STU_ID_REQUIRED',  'Student ID is required'));
+      else if (existingIds.has(stuId)) errors.push(m('ERR_STU_ID_DUPLICATE','Student ID already exists'));
+
+      if (!firstName)             errors.push(m('ERR_FIRST_NAME_REQUIRED','First name is required'));
+      if (!cls)                   errors.push(m('ERR_CLASS_REQUIRED',   'Class name is required'));
+      if (!sec)                   errors.push(m('ERR_SECTION_REQUIRED', 'Section is required'));
+      if (!['male','female','other'].includes(gender)) errors.push(m('ERR_GENDER_INVALID','Gender must be male/female/other'));
+      if (dob && isNaN(Date.parse(dob))) errors.push(m('ERR_DOB_FORMAT','Invalid date of birth format'));
+      if (!gPhone || !phoneRe.test(gPhone)) errors.push(m('ERR_GUARDIAN_PHONE','Guardian phone required (10 digits)'));
+
+      if (!row['blood_group']) warnings.push(m('WARN_BLOOD_GROUP','Blood group missing, will be set to Unknown'));
+      if (!row['category'])    warnings.push(m('WARN_CATEGORY_DEFAULT','Category missing, defaulting to General'));
+
+      return {
+        row: idx + 2,
+        status: errors.length > 0 ? 'failed' : warnings.length > 0 ? 'warning' : 'success',
+        errors,
+        warnings,
+        data: { stuId, firstName, lastName, gender, dob, cls, sec, gPhone,
+                effectiveStart: row['effective_start_date'] || null,
+                effectiveEnd:   row['effective_end_date']   || null,
+                raw: row },
+      };
+    });
+
+    try { fs.unlinkSync(req.file.path); } catch (_) {}
+
+    const totalOk   = results.filter(r => r.status !== 'failed').length;
+    const totalFail = results.filter(r => r.status === 'failed').length;
+    res.json({ success: true, data: { results, totalOk, totalFail, canSubmit: totalFail === 0 } });
+  } catch (err) {
+    try { if (req.file) fs.unlinkSync(req.file.path); } catch (_) {}
+    next(err);
+  }
+});
+
+// POST /students/bulk  → insert validated rows
+router.post('/bulk', authenticate, requireRole('super_admin','school_owner','principal','vp'), upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    const wb = xlsx.readFile(req.file.path);
+    const sheetName = wb.SheetNames.find(n => n !== 'Instructions') || wb.SheetNames[0];
+    const rows = xlsx.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+
+    const effectiveSchoolId = req.employee?.school_id || req.user.school_id;
+    const { branch_id, effective_start_date, effective_end_date } = req.body;
+    const effectiveBranchId = branch_id || req.employee?.branch_id;
+
+    if (!effectiveSchoolId || !effectiveBranchId) {
+      return res.status(400).json({ success: false, message: 'school_id and branch_id are required context' });
+    }
+
+    let inserted = 0; let skipped = 0;
+    
+    // We process them one by one securely (bulk insert is fine too, but this handles guardians cleanly)
+    for (const row of rows) {
+      try {
+        const stuId   = String(row['student_id*'] || row['student_id'] || '').trim();
+        const fn      = String(row['first_name*'] || row['first_name'] || '').trim();
+        const ln      = String(row['last_name*']  || row['last_name']  || '').trim();
+        const gender  = String(row['gender*']     || row['gender']     || 'other').trim().toLowerCase();
+        const cls     = String(row['class_name*'] || row['class_name'] || '').trim();
+        const sec     = String(row['section*']    || row['section']    || '').trim();
+        const dob     = String(row['date_of_birth*'] || row['date_of_birth'] || '').trim() || null;
+        const gPhone  = String(row['guardian_phone*'] || row['guardian_phone'] || '').trim();
+        
+        if (!stuId || !fn || !cls || !sec || !gPhone) { skipped++; continue; }
+
+        const id = uuid();
+        await transaction(async (conn) => {
+          await conn.execute(
+            `INSERT IGNORE INTO students
+               (id, school_id, branch_id, student_id, roll_number, class_name, section,
+                first_name, last_name, gender, date_of_birth, blood_group, nationality, category,
+                address_line1, city, state, country, zip_code,
+                effective_start_date, effective_end_date, is_active)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE)`,
+            [id, effectiveSchoolId, effectiveBranchId, stuId, row['roll_number'] || null, cls, sec,
+             fn, ln, gender, dob, row['blood_group'] || 'Unknown', row['nationality'] || 'Indian', row['category'] || 'General',
+             row['address_line1'] || row['address'] || null, row['city'] || null, row['state'] || null, row['country'] || 'India', row['zip_code'] || null,
+             effective_start_date || row['effective_start_date'] || null, effective_end_date || row['effective_end_date'] || null]
+          );
+
+          // Guardian (if the first insert worked, we insert guardian)
+          await conn.execute(
+            `INSERT INTO guardians (id, student_id, guardian_type, first_name, phone, email, is_primary)
+             VALUES (?,?,COALESCE(?, 'other'),?,?,?,TRUE)`,
+            [uuid(), id, row['guardian_type*'] || row['guardian_type'] || 'father',
+             row['guardian_name*'] || row['guardian_name'] || 'Guardian', gPhone,
+             row['guardian_email'] || null]
+          );
+        });
+        inserted++;
+      } catch (err) {
+        skipped++; 
+      }
+    }
+
+    try { fs.unlinkSync(req.file.path); } catch (_) {}
+    res.json({ success: true, data: { inserted, skipped, total: rows.length } });
+  } catch (err) {
+    try { if (req.file) fs.unlinkSync(req.file.path); } catch (_) {}
+    next(err);
+  }
 });
 
 // ── PATCH /students/:id/status ────────────────────────────────

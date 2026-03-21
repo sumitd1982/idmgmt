@@ -185,20 +185,222 @@ router.patch('/:id/toggle-hidden', authenticate, requireRole('super_admin','prin
   } catch (err) { next(err); }
 });
 
-// Bulk upload template
+// ── BULK UPLOAD ROUTES ────────────────────────────────────────
+
+// GET /employees/bulk-template/download  → 100-row sample XLSX
 router.get('/bulk-template/download', authenticate, async (req, res, next) => {
   try {
     const wb = xlsx.utils.book_new();
-    const headers = [['employee_id','first_name','last_name','gender','date_of_birth','email',
-      'phone','whatsapp_no','org_role_code','reports_to_employee_id','date_of_joining',
-      'address','city','state','zip_code','qualification','specialization','assigned_classes']];
-    const ws = xlsx.utils.aoa_to_sheet(headers);
-    xlsx.utils.book_append_sheet(wb, ws, 'Employees');
+
+    // Instructions sheet
+    const instr = [
+      ['EMPLOYEE BULK UPLOAD TEMPLATE'],
+      ['Fields marked * are mandatory.'],
+      ['Date format: YYYY-MM-DD'],
+      ['gender: male | female | other'],
+      ['org_role_level: 1(Principal) to 10(Lab Staff)'],
+      ['country: defaults to India if blank'],
+      [''],
+    ];
+    const instrWs = xlsx.utils.aoa_to_sheet(instr);
+    xlsx.utils.book_append_sheet(wb, instrWs, 'Instructions');
+
+    // Sample data sheet
+    const headers = [
+      'employee_id*', 'first_name*', 'last_name*', 'gender*',
+      'email*', 'phone*', 'whatsapp_no',
+      'org_role_level*', 'org_role_code', 'org_role_name',
+      'reports_to_emp_id', 'date_of_joining*',
+      'address_line1', 'city', 'state', 'country', 'zip_code',
+      'assigned_classes', 'subject_specialty',
+      'is_temp', 'effective_start_date', 'effective_end_date',
+    ];
+
+    const FIRST = ['Aarav','Priya','Rahul','Sunita','Amit','Kavita','Rohit','Neha','Vivaan','Meena'];
+    const LAST  = ['Sharma','Verma','Gupta','Singh','Patel','Kumar','Mehta','Joshi','Yadav','Tiwari'];
+    const ROLES = [
+      [1,'PRINCIPAL','Principal'],[2,'VP','Vice Principal'],[3,'HEAD_TEACHER','Head Teacher'],
+      [4,'SR_TEACHER','Senior Teacher'],[5,'CL_TEACHER','Class Teacher'],
+      [6,'SUB_TEACHER','Subject Teacher'],[7,'BAK_TEACHER','Backup Teacher'],
+      [8,'TMP_TEACHER','Temp Teacher'],[9,'ASST_TEACHER','Teaching Asst'],[10,'LAB_ASST','Lab Staff'],
+    ];
+    const rows = [headers];
+    for (let i = 1; i <= 100; i++) {
+      const fn = FIRST[i % 10]; const ln = LAST[i % 10];
+      const [lv, lc, lname] = ROLES[(i - 1) % 10];
+      rows.push([
+        `EMP-T${String(i).padStart(3,'0')}`, fn, ln, i%2===0?'male':'female',
+        `${fn.toLowerCase()}.${ln.toLowerCase()}${i}@school.edu.in`,
+        `+9198${String(i).padStart(8,'0')}`,
+        `+9198${String(i).padStart(8,'0')}`,
+        lv, lc, lname,
+        i > 1 ? `EMP-T${String(Math.max(1,i-5)).padStart(3,'0')}` : '',
+        `2025-0${(i%9)+1}-01`,
+        `House ${i}, Sector ${(i%30)+1}`, 'Noida', 'Uttar Pradesh', 'India',
+        `201${String((i%900)+100)}`,
+        lv >= 5 ? `Class ${(i%12)+1}${['A','B','C'][i%3]}` : '',
+        lv >= 4 ? ['Maths','Science','English','Hindi','PE'][i%5] : '',
+        lv === 8 ? 'TRUE' : 'FALSE',
+        '2025-04-01', '2026-03-31',
+      ]);
+    }
+    xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet(rows), 'Employees (100 samples)');
+
     const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Disposition', 'attachment; filename="employee_upload_template.xlsx"');
+    res.setHeader('Content-Disposition', 'attachment; filename="employee_bulk_template.xlsx"');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buf);
   } catch (err) { next(err); }
+});
+
+// POST /employees/validate-bulk  → per-row validation (no DB write)
+router.post('/validate-bulk', authenticate, upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    // Load validation messages from DB
+    const dbMsgs = await query('SELECT code, message_en FROM validation_messages WHERE entity IN (?,?)', ['employee','general']);
+    const msg = {};
+    dbMsgs.forEach(r => { msg[r.code] = r.message_en; });
+    const m = (code, fallback) => msg[code] || fallback;
+
+    const wb = xlsx.readFile(req.file.path);
+    // Find the data sheet (not Instructions)
+    const sheetName = wb.SheetNames.find(n => n !== 'Instructions') || wb.SheetNames[0];
+    const rows = xlsx.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+
+    // Fetch existing employee IDs and branch codes for duplicate checks
+    const effectiveSchoolId = req.employee?.school_id || req.user.school_id;
+    const existingIds = new Set(
+      (await query('SELECT employee_id FROM employees WHERE school_id = ?', [effectiveSchoolId]))
+        .map(r => r.employee_id)
+    );
+    const branches = await query('SELECT id, code FROM branches WHERE school_id = ?', [effectiveSchoolId]);
+    const branchByCode = {};
+    branches.forEach(b => { branchByCode[b.code.toUpperCase()] = b.id; });
+
+    const phoneRe  = /^[+]?[6-9]\d{9,14}$/;
+    const emailRe  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    const results = rows.map((row, idx) => {
+      const errors = []; const warnings = [];
+      const empId    = String(row['employee_id*'] || row['employee_id'] || '').trim();
+      const firstName= String(row['first_name*']  || row['first_name']  || '').trim();
+      const lastName = String(row['last_name*']   || row['last_name']   || '').trim();
+      const email    = String(row['email*']       || row['email']       || '').trim();
+      const phone    = String(row['phone*']       || row['phone']       || '').trim();
+      const gender   = String(row['gender*']      || row['gender']      || '').trim().toLowerCase();
+      const roleLevel= parseInt(row['org_role_level*'] || row['org_role_level'] || 0);
+      const doj      = String(row['date_of_joining*']  || row['date_of_joining'] || '').trim();
+      const branchCode=(String(row['branch_code'] || '')).toUpperCase();
+      const reportsTo= String(row['reports_to_emp_id'] || '').trim();
+
+      if (!empId)                 errors.push(m('ERR_EMP_ID_REQUIRED',  'Employee ID is required'));
+      else if (!/^[A-Za-z0-9\-_]+$/.test(empId)) errors.push(m('ERR_EMP_ID_FORMAT','Employee ID must be alphanumeric'));
+      else if (existingIds.has(empId))            errors.push(m('ERR_EMP_ID_DUPLICATE','Employee ID already exists'));
+
+      if (!firstName)             errors.push(m('ERR_FIRST_NAME_REQUIRED','First name is required'));
+      if (!lastName)              errors.push(m('ERR_LAST_NAME_REQUIRED', 'Last name is required'));
+      if (!email || !emailRe.test(email)) errors.push(m('ERR_EMAIL_FORMAT','Invalid email address'));
+      if (!phone || !phoneRe.test(phone)) errors.push(m('ERR_PHONE_REQUIRED','Phone number required (10 digits, starts 6-9)'));
+      if (!['male','female','other'].includes(gender)) errors.push(m('ERR_GENDER_INVALID','Gender must be male/female/other'));
+      if (!roleLevel || roleLevel < 1 || roleLevel > 10) errors.push(m('ERR_ROLE_LEVEL_INVALID','Role level must be 1–10'));
+      if (branchCode && !branchByCode[branchCode]) errors.push(m('ERR_BRANCH_NOT_FOUND','Branch code not found'));
+      if (doj && new Date(doj) > new Date()) warnings.push(m('WARN_DOJ_FUTURE','Date of joining is in the future'));
+      if (reportsTo && !existingIds.has(reportsTo)) warnings.push(m('WARN_REPORTS_TO_MISSING','reports_to not found, will be blank'));
+
+      return {
+        row: idx + 2, // 1-indexed + header row
+        status: errors.length > 0 ? 'failed' : warnings.length > 0 ? 'warning' : 'success',
+        errors,
+        warnings,
+        data: { empId, firstName, lastName, email, phone, gender, roleLevel, doj, branchCode, reportsTo,
+                branchId: branchByCode[branchCode] || null,
+                effectiveStart: row['effective_start_date'] || null,
+                effectiveEnd:   row['effective_end_date']   || null,
+                raw: row },
+      };
+    });
+
+    // Clean up temp file
+    try { fs.unlinkSync(req.file.path); } catch (_) {}
+
+    const totalOk   = results.filter(r => r.status !== 'failed').length;
+    const totalFail = results.filter(r => r.status === 'failed').length;
+    res.json({ success: true, data: { results, totalOk, totalFail, canSubmit: totalFail === 0 } });
+  } catch (err) {
+    try { if (req.file) fs.unlinkSync(req.file.path); } catch (_) {}
+    next(err);
+  }
+});
+
+// POST /employees/bulk  → insert validated rows
+router.post('/bulk', authenticate, requireRole('super_admin','school_owner','principal','vp'), upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    const wb = xlsx.readFile(req.file.path);
+    const sheetName = wb.SheetNames.find(n => n !== 'Instructions') || wb.SheetNames[0];
+    const rows = xlsx.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+
+    const effectiveSchoolId = req.employee?.school_id || req.user.school_id;
+    const { effective_start_date, effective_end_date } = req.body;
+
+    const branches = await query('SELECT id, code FROM branches WHERE school_id = ?', [effectiveSchoolId]);
+    const branchByCode = {};
+    branches.forEach(b => { branchByCode[b.code.toUpperCase()] = b.id; });
+
+    const orgRoles = await query('SELECT id, level, code FROM org_roles WHERE school_id = ? AND is_active = TRUE', [effectiveSchoolId]);
+    const roleByLevel = {}; const roleByCode = {};
+    orgRoles.forEach(r => { roleByLevel[r.level] = r.id; if (r.code) roleByCode[r.code.toUpperCase()] = r.id; });
+
+    let inserted = 0; let skipped = 0;
+    for (const row of rows) {
+      try {
+        const empId   = String(row['employee_id*'] || row['employee_id'] || '').trim();
+        const fn      = String(row['first_name*']  || row['first_name']  || '').trim();
+        const ln      = String(row['last_name*']   || row['last_name']   || '').trim();
+        const email   = String(row['email*']       || row['email']       || '').trim();
+        const phone   = String(row['phone*']       || row['phone']       || '').trim();
+        const wapp    = String(row['whatsapp_no']  || phone).trim();
+        const gender  = String(row['gender*']      || row['gender']      || 'other').trim().toLowerCase();
+        const doj     = String(row['date_of_joining*'] || row['date_of_joining'] || '').trim() || null;
+        const lvl     = parseInt(row['org_role_level*'] || row['org_role_level'] || 0);
+        const rc      = String(row['org_role_code'] || '').toUpperCase();
+        const bc      = String(row['branch_code']  || '').toUpperCase();
+        const isTemp  = String(row['is_temp'] || '').toUpperCase() === 'TRUE';
+        const classes = String(row['assigned_classes'] || '').trim();
+        const subject = String(row['subject_specialty'] || '').trim();
+        if (!empId || !fn || !ln || !email || !phone) { skipped++; continue; }
+
+        const orgRoleId = roleByCode[rc] || roleByLevel[lvl];
+        if (!orgRoleId) { skipped++; continue; }
+
+        const branchId = branchByCode[bc] || null;
+
+        await query(
+          `INSERT IGNORE INTO employees
+             (id, school_id, branch_id, employee_id, org_role_id,
+              first_name, last_name, email, phone, whatsapp_no,
+              gender, date_of_joining, assigned_classes, is_temp, country,
+              effective_start_date, effective_end_date, is_active)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE)`,
+          [uuid(), effectiveSchoolId, branchId, empId, orgRoleId,
+           fn, ln, email, phone, wapp,
+           gender, doj || null, JSON.stringify(classes ? classes.split(',').map(c=>c.trim()) : []),
+           isTemp, 'India',
+           effective_start_date || null, effective_end_date || null]
+        );
+        inserted++;
+      } catch (_) { skipped++; }
+    }
+
+    try { fs.unlinkSync(req.file.path); } catch (_) {}
+    res.json({ success: true, data: { inserted, skipped, total: rows.length } });
+  } catch (err) {
+    try { if (req.file) fs.unlinkSync(req.file.path); } catch (_) {}
+    next(err);
+  }
 });
 
 // Org tree

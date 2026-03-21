@@ -23,7 +23,7 @@ INSERT INTO schools (id, name, short_name, code, affiliation_no, affiliation_boa
     phone1, phone2, email, website, whatsapp_no,
     academic_year, timezone, created_by) VALUES
 ('sch-dps-001', 'Delhi Public School Society', 'DPS', 'DPS-HQ',
- 'CBSE-130001', 'CBSE', 'private',
+ 'CBSE-130001', 'CBSE', 'k12',
  'Sri Aurobindo Marg', 'New Delhi', 'New Delhi', 'Delhi', 'India', '110016',
  '+911126581700', '+911126581701', 'info@dps.in', 'https://www.dps.in', '+911126581700',
  '2025-26', 'Asia/Kolkata', 'usr-super-001');
