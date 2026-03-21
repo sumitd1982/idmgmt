@@ -112,7 +112,7 @@ final _orgTreeProvider = FutureProvider.family<List<OrgNode>, String?>(
   try {
     // Resolve school_id from param or logged-in user's employee context
     final user = ref.read(authNotifierProvider).value;
-    final effectiveSchoolId = schoolId ?? user?.employee?.schoolId;
+    final effectiveSchoolId = schoolId ?? user?.schoolId ?? user?.employee?.schoolId;
     if (effectiveSchoolId == null) return OrgNode.mockTree();
     final data = await ApiService().get('/employees/org-tree/$effectiveSchoolId');
     final list = data['data'] as List<dynamic>? ?? [];

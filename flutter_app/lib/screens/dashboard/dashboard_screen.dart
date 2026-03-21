@@ -274,7 +274,7 @@ class _WelcomeHeader extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'Role: ${user?.role ?? 'Administrator'}',
+                    'Role: ${_formatRole(user?.role ?? "Administrator")}',
                     style: GoogleFonts.poppins(
                       color: Colors.white,
                       fontSize: 12,
@@ -290,6 +290,13 @@ class _WelcomeHeader extends StatelessWidget {
       ),
     ).animate().fadeIn(duration: 500.ms).slideY(begin: -0.1);
   }
+
+  String _formatRole(String role) =>
+      role.replaceAll('_', ' ').split(' ')
+          .map((w) => w.isEmpty
+              ? ''
+              : '${w[0].toUpperCase()}${w.substring(1)}')
+          .join(' ');
 }
 
 // ── Stats Row ─────────────────────────────────────────────────
@@ -890,7 +897,11 @@ class _OnboardingGuide extends ConsumerWidget {
       error: (_, __) => const SizedBox.shrink(),
       data: (stats) {
         // Only show if user has no schools
-        if (stats.totalSchools > 0) return const SizedBox.shrink();
+        final user = ref.read(authNotifierProvider).valueOrNull;
+        // Show if user has no schools OR if they are a school_owner with no branches yet
+        if (stats.totalSchools > 0 && !(user?.isSchoolOwner ?? false && stats.totalBranches == 0)) {
+          return const SizedBox.shrink();
+        }
 
         return Card(
           elevation: 0,

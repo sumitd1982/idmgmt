@@ -82,7 +82,7 @@ router.get('/:id', authenticate, async (req, res, next) => {
 // ── POST /schools — create school ────────────────────────────
 router.post('/',
   authenticate,
-  requireRole('super_admin'),
+  requireRole('super_admin', 'viewer', 'onboarding'),
   [
     body('name').notEmpty().trim().isLength({ max: 255 }),
     body('code').notEmpty().trim().toUpperCase().isLength({ max: 20 }),
@@ -134,6 +134,26 @@ router.post('/',
           'INSERT INTO org_roles (id,school_id,name,code,level,can_approve,can_upload_bulk,sort_order) VALUES (?,?,?,?,?,?,?,?)',
           [uuid(), id, rname, code2, level, can_approve, can_upload, level]
         );
+      }
+
+      // If a non-super_admin created this school, promote them to school_owner + Principal
+      if (req.user.role !== 'super_admin') {
+        await query(
+          'UPDATE users SET role = "school_owner", school_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [id, req.user.id]
+        );
+        
+        // Also create Principal employee record for them
+        const empId = uuid();
+        const [principalRole] = await query('SELECT id FROM org_roles WHERE school_id = ? AND code = "PRINCIPAL"', [id]);
+        
+        if (principalRole) {
+          await query(
+            `INSERT INTO employees (id, user_id, school_id, org_role_id, first_name, last_name, email, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)`,
+            [empId, req.user.id, id, principalRole.id, req.user.full_name.split(' ')[0], req.user.full_name.split(' ').slice(1).join(' ') || 'Owner', req.user.email]
+          );
+        }
       }
 
       const [school] = await query('SELECT * FROM schools WHERE id = ?', [id]);

@@ -495,35 +495,51 @@ class _RequestDetailPanel extends ConsumerWidget {
 
             const Spacer(),
 
-            // Approve/Reject actions
+            // Approve / Return / Reject actions
             if (request.status == 'open' || request.status == 'in_review')
-              Row(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {},
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.error,
-                        side: BorderSide(
-                            color: AppTheme.error.withOpacity(0.4)),
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                      ),
-                      icon:  const Icon(Icons.close, size: 14),
-                      label: const Text('Reject'),
+                  // Return to Parent
+                  OutlinedButton.icon(
+                    onPressed: () => _showReturnDialog(context, ref, request.id),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFF57C00),
+                      side: const BorderSide(color: Color(0xFFFFA726)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
+                    icon: const Icon(Icons.undo_rounded, size: 14),
+                    label: const Text('Return to Parent'),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {},
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.statusGreen,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _doAction(context, ref, request.id, 'reject'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.error,
+                            side: BorderSide(color: AppTheme.error.withOpacity(0.4)),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          icon:  const Icon(Icons.close, size: 14),
+                          label: const Text('Reject'),
+                        ),
                       ),
-                      icon:  const Icon(Icons.check, size: 14),
-                      label: const Text('Approve'),
-                    ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => _doAction(context, ref, request.id, 'approve'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.statusGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          icon:  const Icon(Icons.check, size: 14),
+                          label: const Text('Approve'),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -531,6 +547,93 @@ class _RequestDetailPanel extends ConsumerWidget {
         ),
       ),
     ).animate().slideX(begin: 0.2, duration: 300.ms);
+  }
+
+  Future<void> _doAction(BuildContext context, WidgetRef ref, String id, String action) async {
+    try {
+      await ApiService().post('/parent/reviews/$id/approve', body: { 'action': action });
+      ref.invalidate(_requestsProvider);
+      ref.read(_selectedRequestProvider.notifier).state = null;
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(action == 'approve' ? 'Review approved ✅' : 'Review rejected ❌'),
+          backgroundColor: action == 'approve' ? AppTheme.statusGreen : AppTheme.error,
+        ));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: AppTheme.error,
+        ));
+      }
+    }
+  }
+
+  Future<void> _showReturnDialog(BuildContext context, WidgetRef ref, String id) async {
+    final reasonCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Return to Parent', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Explain what needs to be corrected or added:', style: GoogleFonts.poppins(fontSize: 13)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: reasonCtrl,
+              maxLines: 3,
+              autofocus: true,
+              style: GoogleFonts.poppins(fontSize: 13),
+              decoration: InputDecoration(
+                hintText: 'e.g. Please upload the Aadhaar card copy...',
+                hintStyle: GoogleFonts.poppins(fontSize: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Cancel', style: GoogleFonts.poppins()),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF57C00)),
+            onPressed: () {
+              if (reasonCtrl.text.trim().isNotEmpty) Navigator.of(ctx).pop(true);
+            },
+            child: Text('Send Back', style: GoogleFonts.poppins(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      try {
+        await ApiService().post('/parent/reviews/$id/approve', body: {
+          'action': 'return',
+          'return_reason': reasonCtrl.text.trim(),
+        });
+        ref.invalidate(_requestsProvider);
+        ref.read(_selectedRequestProvider.notifier).state = null;
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Returned to parent for revision 🔄'),
+            backgroundColor: Color(0xFFF57C00),
+          ));
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: AppTheme.error,
+          ));
+        }
+      }
+    }
   }
 }
 

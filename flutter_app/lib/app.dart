@@ -24,6 +24,7 @@ import 'screens/id_card/id_card_designer.dart';
 import 'screens/id_card/id_template_list_screen.dart';
 import 'screens/id_card/id_template_designer_screen.dart';
 import 'screens/parent/parent_review_screen.dart';
+import 'screens/parent/parent_portal_screen.dart';
 import 'screens/reports/reports_screen.dart';
 import 'screens/requests/requests_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
@@ -32,6 +33,7 @@ import 'screens/attendance/attendance_config_screen.dart';
 import 'screens/attendance/take_attendance_screen.dart';
 import 'screens/messaging/inbox_screen.dart';
 import 'screens/messaging/chat_screen.dart';
+import 'screens/settings/theme_settings_screen.dart';
 import 'widgets/common/app_shell.dart';
 
 final _rootNavigatorKey   = GlobalKey<NavigatorState>();
@@ -68,7 +70,7 @@ class _RouterNotifier extends ChangeNotifier {
 
     if (!isLoggedIn) {
       if (isAuthPath || isLanding) return null;
-      return '/login';
+      return '/login/staff'; // Redirect to a valid sub-route
     }
 
     if (isAuthPath || isLanding) {
@@ -118,6 +120,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (ctx, state, child) => AppShell(child: child),
         routes: [
           GoRoute(path: '/dashboard',       builder: (_, __) => const DashboardScreen()),
+          GoRoute(path: '/parent-portal',    builder: (_, __) => const ParentPortalScreen()),
           GoRoute(path: '/schools',         builder: (_, __) => const SchoolListScreen()),
           GoRoute(path: '/schools/new',     builder: (_, __) => const SchoolFormScreen()),
           GoRoute(
@@ -163,10 +166,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/attendance-config', builder: (_, __) => const AttendanceConfigScreen()),
           GoRoute(path: '/take-attendance', builder: (_, __) => const TakeAttendanceScreen()),
           GoRoute(path: '/messaging',       builder: (_, __) => const InboxScreen()),
-          GoRoute(
             path: '/messaging/:id',
             builder: (_, s) => ChatScreen(conversationId: s.pathParameters['id']!),
           ),
+          GoRoute(path: '/settings',        builder: (_, __) => const ThemeSettingsScreen()),
         ],
       ),
     ],
@@ -197,13 +200,22 @@ class IdMgmtApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final theme  = ref.watch(themeProvider);
 
     return MaterialApp.router(
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.light,
+      theme: AppTheme.light.copyWith(
+        colorScheme: theme.primaryColor != null 
+          ? ColorScheme.fromSeed(seedColor: theme.primaryColor!, brightness: Brightness.light)
+          : null,
+      ),
+      darkTheme: AppTheme.dark.copyWith(
+        colorScheme: theme.primaryColor != null 
+          ? ColorScheme.fromSeed(seedColor: theme.primaryColor!, brightness: Brightness.dark)
+          : null,
+      ),
+      themeMode: theme.mode,
       routerConfig: router,
       builder: (context, child) => ResponsiveBreakpoints.builder(
         child: child!,

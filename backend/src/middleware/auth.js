@@ -148,11 +148,15 @@ const authenticate = async (req, res, next) => {
  */
 const requireRole = (...roles) => (req, res, next) => {
   if (!req.user) return res.status(401).json({ success: false, message: 'Unauthenticated' });
-  if (!roles.includes(req.user.role)) {
-    return res.status(403).json({
-      success: false,
-      message: `Access denied. Required roles: ${roles.join(', ')}`
-    });
+  if (!roles.includes(req.user.role) && req.user.role !== 'super_admin') {
+    // If the user is a school_owner, we allow them past this gate IF the action is within their school
+    // (Actual school scoping is handled by requireSchoolAccess)
+    if (req.user.role !== 'school_owner') {
+      return res.status(403).json({
+        success: false,
+        message: `Access denied. Required roles: ${roles.join(', ')}`
+      });
+    }
   }
   next();
 };
@@ -182,7 +186,12 @@ const requireSchoolAccess = async (req, res, next) => {
 
   if (req.user.role === 'super_admin') return next();
 
-  if (!req.employee || req.employee.school_id !== schoolId) {
+  // school_owner must match the school_id in the request
+  const userSchoolId = req.user.role === 'school_owner' 
+    ? req.user.school_id // We should ensure req.user has school_id for owners
+    : req.employee?.school_id;
+
+  if (!userSchoolId || userSchoolId !== schoolId) {
     return res.status(403).json({ success: false, message: 'Not authorized for this school' });
   }
   next();

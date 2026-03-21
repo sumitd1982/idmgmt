@@ -8,8 +8,8 @@ router.get('/roles/:school_id', authenticate, async (req, res, next) => {
     const schoolId = req.params.school_id;
     // Security: Only super_admin can override the school context
     const effectiveSchoolId = req.user.role === 'super_admin' 
-      ? (schoolId || req.employee?.school_id) 
-      : req.employee?.school_id;
+      ? (schoolId || req.employee?.school_id || req.user.school_id) 
+      : (req.employee?.school_id || req.user.school_id);
 
     if (!effectiveSchoolId || (req.user.role !== 'super_admin' && effectiveSchoolId !== schoolId)) {
       // If non-super_admin requested a different school, return their own school's data instead or empty
@@ -27,21 +27,30 @@ router.get('/roles/:school_id', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/roles', authenticate, requireRole('super_admin','principal','vp'), async (req, res, next) => {
+router.post('/roles', authenticate, requireRole('super_admin','school_owner','principal','vp'), async (req, res, next) => {
   try {
     const id = uuid();
-    const { school_id, name, code, level, description, can_approve, can_upload_bulk, permissions = {} } = req.body;
+    const { name, code, level, description, can_approve, can_upload_bulk, permissions = {} } = req.body;
+
+    const effectiveSchoolId = req.user.role === 'super_admin' 
+      ? (req.body.school_id || req.employee?.school_id || req.user.school_id) 
+      : (req.employee?.school_id || req.user.school_id);
+
+    if (!effectiveSchoolId) {
+      return res.status(422).json({ success: false, message: 'school_id is required' });
+    }
+
     await query(
       `INSERT INTO org_roles (id,school_id,name,code,level,description,can_approve,can_upload_bulk,sort_order,permissions)
        VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [id, school_id, name, code, level, description, can_approve, can_upload_bulk, level, JSON.stringify(permissions)]
+      [id, effectiveSchoolId, name, code, level, description, can_approve, can_upload_bulk, level, JSON.stringify(permissions)]
     );
     const [role] = await query('SELECT * FROM org_roles WHERE id=?', [id]);
     res.status(201).json({ success: true, data: role });
   } catch (err) { next(err); }
 });
 
-router.put('/roles/:id', authenticate, requireRole('super_admin','principal','vp'), async (req, res, next) => {
+router.put('/roles/:id', authenticate, requireRole('super_admin','school_owner','principal','vp'), async (req, res, next) => {
   try {
     const { name, description, can_approve, can_upload_bulk, is_active, permissions } = req.body;
     

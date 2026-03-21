@@ -11,6 +11,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../../models/user_model.dart';
 
 // ── Nav Item Model ────────────────────────────────────────────
@@ -110,33 +111,63 @@ const _navItems = <_NavItem>[
     label: 'Requests',
     badge: 3,
   ),
+  _NavItem(
+    path: '/settings',
+    icon: Icons.settings_outlined,
+    activeIcon: Icons.settings,
+    label: 'Settings',
+  ),
+  // Parent portal (only visible to 'parent' role)
+  _NavItem(
+    path: '/parent-portal',
+    icon: Icons.family_restroom_outlined,
+    activeIcon: Icons.family_restroom,
+    label: 'My Children',
+  ),
 ];
 
 // ── Role-based nav visibility ─────────────────────────────────
 List<_NavItem> _visibleNavItems(AppUser? user) {
   if (user == null) return _navItems;
   final role = user.role;
-  // Super admin and school/branch admins see everything
-  if (['super_admin', 'school_admin', 'branch_admin'].contains(role)) {
+  // Super admin sees everything
+  if (role == 'super_admin') {
     return _navItems;
   }
-  // Principals & VPs see most items (no Schools management)
+  // School Owners see everything EXCEPT the global "Schools" list
+  if (role == 'school_owner') {
+    return _navItems
+        .where((n) => n.path != '/schools')
+        .toList();
+  }
+  // school/branch admins see everything for their context
+  if (['school_admin', 'branch_admin'].contains(role)) {
+    return _navItems;
+  }
+  // Principals & VPs see most items
   if (role == 'principal' || role == 'vp') {
     return _navItems
         .where((n) => n.path != '/schools')
         .toList();
   }
-  // Head teachers see employees, students, attendance, reports, requests, messaging
+  // Head teachers see employees, students, attendance, reports, requests, messaging, settings
   if (role == 'head_teacher') {
     return _navItems
-        .where((n) => ['/dashboard', '/employees', '/students', '/take-attendance', '/messaging', '/reports', '/requests'].contains(n.path))
+        .where((n) => ['/dashboard', '/employees', '/students', '/take-attendance', '/messaging', '/reports', '/requests', '/settings'].contains(n.path))
         .toList();
   }
-  // Teachers only see students, id-templates, attendance, reports, requests, messaging
+  // Parents only see their portal and dashboard
+  if (role == 'parent') {
+    return _navItems
+        .where((n) => ['/dashboard', '/parent-portal', '/settings'].contains(n.path))
+        .toList();
+  }
+  // Teachers only see students, id-templates, attendance, reports, requests, messaging, settings
   return _navItems
-      .where((n) => ['/dashboard', '/students', '/id-templates', '/take-attendance', '/messaging', '/reports', '/requests'].contains(n.path))
+      .where((n) => ['/dashboard', '/students', '/id-templates', '/take-attendance', '/messaging', '/reports', '/requests', '/settings'].contains(n.path))
       .toList();
 }
+
 
 // ── Sidebar Width ─────────────────────────────────────────────
 const double _sidebarExpanded  = 240.0;
@@ -154,15 +185,49 @@ class AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isMobile = ResponsiveBreakpoints.of(context).smallerOrEqualTo(MOBILE);
     final isTablet = ResponsiveBreakpoints.of(context).equals(TABLET);
-    final collapsed = ref.watch(sidebarCollapsedProvider);
     final location  = GoRouterState.of(context).matchedLocation;
+    final settings  = ref.watch(themeProvider);
 
     if (isMobile) {
       return _MobileShell(child: child, location: location);
     }
 
-    final autoCollapse = isTablet;
-    final effectiveCollapsed = autoCollapse ? true : collapsed;
+    // High-level layout selection
+    switch (settings.layout) {
+      case AppLayout.topnav:
+        return _TopNavShell(child: child, location: location);
+      case AppLayout.compact:
+        return _DesktopShell(child: child, location: location, forceCompact: true, ref: ref);
+      case AppLayout.classic:
+        return _DesktopShell(child: child, location: location, hideTopBar: true, ref: ref);
+      case AppLayout.modern:
+      default:
+        return _DesktopShell(child: child, location: location, ref: ref);
+    }
+  }
+}
+
+// ── Shared Desktop Shell Logic ────────────────────────────────
+class _DesktopShell extends StatelessWidget {
+  final Widget child;
+  final String location;
+  final bool forceCompact;
+  final bool hideTopBar;
+  final WidgetRef ref;
+
+  const _DesktopShell({
+    required this.child,
+    required this.location,
+    required this.ref,
+    this.forceCompact = false,
+    this.hideTopBar = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final collapsed = ref.watch(sidebarCollapsedProvider);
+    final isTablet  = ResponsiveBreakpoints.of(context).equals(TABLET);
+    final effectiveCollapsed = forceCompact || isTablet || collapsed;
 
     return Scaffold(
       backgroundColor: AppTheme.grey50,
@@ -171,15 +236,14 @@ class AppShell extends ConsumerWidget {
           _DesktopSidebar(
             collapsed: effectiveCollapsed,
             location:  location,
-            onToggle:  autoCollapse
+            onToggle:  (forceCompact || isTablet)
                 ? null
-                : () => ref.read(sidebarCollapsedProvider.notifier).state =
-                    !collapsed,
+                : () => ref.read(sidebarCollapsedProvider.notifier).state = !collapsed,
           ),
           Expanded(
             child: Column(
               children: [
-                _TopBar(location: location),
+                if (!hideTopBar) _TopBar(location: location),
                 Expanded(child: child),
               ],
             ),
@@ -845,6 +909,138 @@ class _MobileDrawer extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+// ── Top Nav Shell (No Sidebar) ────────────────────────────────
+class _TopNavShell extends ConsumerWidget {
+  final Widget child;
+  final String location;
+  const _TopNavShell({required this.child, required this.location});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authNotifierProvider).valueOrNull;
+    final navItems = _visibleNavItems(user);
+
+    return Scaffold(
+      backgroundColor: AppTheme.grey50,
+      appBar: AppBar(
+        elevation: 2,
+        backgroundColor: Colors.white,
+        title: Row(
+          children: [
+            const Icon(Icons.badge, color: AppTheme.primary, size: 24),
+            const SizedBox(width: 12),
+            Text(
+              AppConstants.appName,
+              style: GoogleFonts.poppins(
+                color: AppTheme.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: Container(
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Colors.grey.shade200)),
+            ),
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: navItems.length,
+              itemBuilder: (ctx, i) {
+                final item = navItems[i];
+                final isActive = location.startsWith(item.path);
+                return InkWell(
+                  onTap: () => ctx.go(item.path),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: isActive ? AppTheme.primary : Colors.transparent,
+                          width: 3,
+                        ),
+                      ),
+                    ),
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isActive ? item.activeIcon : item.icon,
+                            size: 18,
+                            color: isActive ? AppTheme.primary : AppTheme.grey600,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            item.label,
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                              color: isActive ? AppTheme.primary : AppTheme.grey600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        actions: [
+          IconButton(
+            onPressed: () {},
+            icon: const Icon(Icons.notifications_outlined, color: AppTheme.grey600),
+          ),
+          const SizedBox(width: 8),
+          _UserMenu(user: user),
+          const SizedBox(width: 12),
+        ],
+      ),
+      body: child,
+    );
+  }
+}
+
+class _UserMenu extends ConsumerWidget {
+  final AppUser? user;
+  const _UserMenu({this.user});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (user == null) return const SizedBox();
+    return PopupMenuButton(
+      child: CircleAvatar(
+        radius: 16,
+        backgroundColor: AppTheme.primary.withOpacity(0.12),
+        backgroundImage: user?.photoUrl != null ? NetworkImage(user!.photoUrl!) : null,
+        child: user?.photoUrl == null ? Text(user!.displayName[0].toUpperCase()) : null,
+      ),
+      itemBuilder: (ctx) => [
+        PopupMenuItem(
+          child: Text(user!.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          onTap: () => ref.read(authNotifierProvider.notifier).signOut(),
+          child: const Row(
+            children: [
+              Icon(Icons.logout, size: 18),
+              SizedBox(width: 12),
+              Text('Sign Out'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

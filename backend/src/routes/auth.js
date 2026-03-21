@@ -131,8 +131,13 @@ router.post('/otp/verify', async (req, res, next) => {
           [`%${last10}`, last10]
         );
         if (guardian) {
-          logger.info(`[LOGIN] Guardian found mirroring phone — promoting user to parent`);
+          logger.info(`[LOGIN] Guardian found mirroring phone — promoting user to parent, linking user_id`);
           await query('UPDATE users SET role = ? WHERE id = ?', ['parent', user.id]);
+          // Persist the user_id link on the guardians row for fast future lookups
+          await query(
+            'UPDATE guardians SET user_id = ? WHERE (phone LIKE ? OR phone LIKE ?) AND user_id IS NULL',
+            [user.id, `%${last10}`, last10]
+          );
           user.role = 'parent';
         }
       }

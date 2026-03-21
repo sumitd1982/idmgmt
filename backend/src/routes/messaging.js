@@ -18,7 +18,8 @@ const validate = (req, res, next) => {
  */
 const requireMessagingEnabled = async (req, res, next) => {
   try {
-    const schoolId = req.user.role === 'parent' ? req.query.school_id || req.body.school_id : req.employee?.school_id;
+    const isSchoolScoped = req.user.role === 'super_admin' || req.user.role === 'school_owner';
+    const schoolId = req.user.role === 'parent' ? (req.query.school_id || req.body.school_id) : (isSchoolScoped ? (req.user.school_id || req.query.school_id || req.body.school_id) : req.employee?.school_id);
     if (!schoolId) return res.status(400).json({ success: false, message: 'school_id is required to verify settings' });
     
     const [school] = await query('SELECT settings FROM schools WHERE id = ?', [schoolId]);
@@ -51,9 +52,10 @@ router.get('/', authenticate, async (req, res, next) => {
       // It's an employee
       if (!req.employee) return res.status(403).json({ success: false, message: 'Employee profile not found' });
       
-      if (['super_admin', 'school_admin', 'principal'].includes(req.user.role)) {
+      if (['super_admin', 'school_owner', 'school_admin', 'principal'].includes(req.user.role)) {
          // SuperAdmins can pass school_id in query, others use their session school_id
-         const schoolId = req.user.role === 'super_admin' ? req.query.school_id : req.employee?.school_id;
+         const isGlobalAdmin = req.user.role === 'super_admin';
+         const schoolId = isGlobalAdmin ? req.query.school_id : (req.user.school_id || req.employee?.school_id);
          if (!schoolId) return res.status(400).json({ success: false, message: 'school_id query param required for this role' });
          
          whereClause = 'c.school_id = ?';

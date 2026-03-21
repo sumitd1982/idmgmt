@@ -208,7 +208,7 @@ class _StudentFormScreenState extends ConsumerState<StudentFormScreen>
 
       final user = ref.read(authNotifierProvider).value;
       final body = {
-        'school_id':     user?.employee?.schoolId,
+        'school_id':     user?.schoolId ?? user?.employee?.schoolId,
         'branch_id':     user?.employee?.branchId,
         'first_name':    _firstNameCtrl.text.trim(),
         'last_name':     _lastNameCtrl.text.trim(),

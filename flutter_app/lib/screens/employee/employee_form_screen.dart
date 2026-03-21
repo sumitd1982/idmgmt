@@ -17,7 +17,7 @@ import '../../providers/auth_provider.dart';
 final _rolesProvider = FutureProvider.family<List<Map<String, dynamic>>, String?>((ref, schoolId) async {
   try {
     final user = ref.read(authNotifierProvider).value;
-    final sid = schoolId ?? user?.employee?.schoolId;
+    final sid = schoolId ?? user?.schoolId ?? user?.employee?.schoolId;
     if (sid == null) return [];
     final res = await ApiService().get('/org/roles/$sid');
     return List<Map<String, dynamic>>.from(res['data'] ?? []);
@@ -134,9 +134,9 @@ class _EmployeeFormScreenState extends ConsumerState<EmployeeFormScreen> {
         'employee_id': _empIdCtrl.text.trim(),
         'role_level': _roleLevel,
         'reports_to_emp_id': _managerId,
-        'is_active': _isActive ? 1 : 0,
+        'isActive': _isActive ? 1 : 0,
         'extra_roles': _extraRoles,
-        'school_id': _currentSchoolId,
+        'school_id': _currentSchoolId ?? ref.read(authNotifierProvider).value?.schoolId,
         'branch_id': _currentBranchId,
       };
       

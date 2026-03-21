@@ -11,7 +11,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 // GET /attendance/modules
 router.get('/modules', authenticate, async (req, res, next) => {
   try {
-    const schoolId = req.employee?.school_id || req.query.school_id;
+    const schoolId = req.employee?.school_id || req.user.school_id || req.query.school_id;
     if (!schoolId) return res.status(403).json({ success: false, message: 'No school context' });
 
     const modules = await query(
@@ -27,11 +27,12 @@ router.get('/modules', authenticate, async (req, res, next) => {
 });
 
 // POST /attendance/modules (Create new module)
-router.post('/modules', authenticate, requireRole('super_admin', 'principal', 'vp'), async (req, res, next) => {
+router.post('/modules', authenticate, requireRole('super_admin', 'school_owner', 'principal', 'vp'), async (req, res, next) => {
   try {
     const { name, type, is_active = true } = req.body;
     // SuperAdmin must provide school_id, others use their session school_id
-    const schoolId = req.user.role === 'super_admin' ? req.body.school_id : req.employee?.school_id;
+    const isSchoolScoped = req.user.role === 'super_admin' || req.user.role === 'school_owner';
+    const schoolId = isSchoolScoped ? (req.user.school_id || req.body.school_id) : req.employee?.school_id;
 
     if (!schoolId) return res.status(400).json({ success: false, message: 'school_id is required' });
     if (!name || !type) return res.status(400).json({ success: false, message: 'Name and Type required' });
@@ -47,9 +48,9 @@ router.post('/modules', authenticate, requireRole('super_admin', 'principal', 'v
 });
 
 // PATCH /attendance/modules/:id/toggle (Turn module ON/OFF)
-router.patch('/modules/:id/toggle', authenticate, requireRole('super_admin', 'principal', 'vp'), async (req, res, next) => {
+router.patch('/modules/:id/toggle', authenticate, requireRole('super_admin', 'school_owner', 'principal', 'vp'), async (req, res, next) => {
   try {
-    const schoolId = req.employee?.school_id || req.body.school_id;
+    const schoolId = req.employee?.school_id || req.user.school_id || req.body.school_id;
     const { is_active } = req.body;
 
     await query(
@@ -65,7 +66,7 @@ router.patch('/modules/:id/toggle', authenticate, requireRole('super_admin', 'pr
 // GET /attendance/modules/:id/students
 router.get('/modules/:id/students', authenticate, async (req, res, next) => {
   try {
-    const schoolId = req.employee?.school_id || req.query.school_id;
+    const schoolId = req.employee?.school_id || req.user.school_id || req.query.school_id;
     
     const students = await query(
       `SELECT s.id, s.student_id, s.first_name, s.last_name, s.class_name, s.section, s.photo_url
@@ -81,7 +82,7 @@ router.get('/modules/:id/students', authenticate, async (req, res, next) => {
 });
 
 // POST /attendance/modules/:id/students (Add students to custom module)
-router.post('/modules/:id/students', authenticate, requireRole('super_admin', 'principal', 'vp'), async (req, res, next) => {
+router.post('/modules/:id/students', authenticate, requireRole('super_admin', 'school_owner', 'principal', 'vp'), async (req, res, next) => {
   try {
     const { student_ids } = req.body;
     if (!Array.isArray(student_ids) || student_ids.length === 0) {

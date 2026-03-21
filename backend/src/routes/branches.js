@@ -11,8 +11,8 @@ router.get('/', authenticate, async (req, res, next) => {
     
     // Security: Only super_admin can override the school context via query params
     const effectiveSchoolId = req.user.role === 'super_admin' 
-      ? (school_id || req.employee?.school_id) 
-      : req.employee?.school_id;
+      ? (school_id || req.employee?.school_id || req.user.school_id) 
+      : (req.employee?.school_id || req.user.school_id);
 
     // Non-super_admin with no school context sees nothing
     if (req.user.role !== 'super_admin' && !effectiveSchoolId) {
@@ -39,7 +39,7 @@ router.get('/', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/', authenticate, requireRole('super_admin','principal','vp'), async (req, res, next) => {
+router.post('/', authenticate, requireRole('super_admin','school_owner','principal','vp'), async (req, res, next) => {
   try {
     const id = uuid();
     const { name, short_name, logo_url,
@@ -50,8 +50,8 @@ router.post('/', authenticate, requireRole('super_admin','principal','vp'), asyn
     const code = req.body.code || req.body.branch_code;
     // Security: Only super_admin can specify a school_id for other schools
     const effectiveSchoolId = req.user.role === 'super_admin' 
-      ? (req.body.school_id || req.employee?.school_id) 
-      : req.employee?.school_id;
+      ? (req.body.school_id || req.employee?.school_id || req.user.school_id) 
+      : (req.employee?.school_id || req.user.school_id);
 
     if (!effectiveSchoolId) {
       return res.status(422).json({ success: false, message: 'school_id is required' });
@@ -74,7 +74,7 @@ router.post('/', authenticate, requireRole('super_admin','principal','vp'), asyn
   } catch (err) { next(err); }
 });
 
-router.put('/:id', authenticate, requireRole('super_admin','principal','vp'), async (req, res, next) => {
+router.put('/:id', authenticate, requireRole('super_admin','school_owner','principal','vp'), async (req, res, next) => {
   try {
     const allowed = ['name','short_name','logo_url','address_line1','address_line2','city','state',
                      'country','zip_code','phone1','phone2','email','website','whatsapp_no','is_active'];

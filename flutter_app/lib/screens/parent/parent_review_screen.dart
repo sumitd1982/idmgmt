@@ -1,18 +1,21 @@
 // ============================================================
-// Parent Review Portal (public, token-based)
+// Parent Review Portal (public, token-based)  v2
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'dart:typed_data';
 import '../../config/theme.dart';
 import '../../services/api_service.dart';
 
 // ── Models ────────────────────────────────────────────────────
 class _ReviewData {
+  final String reviewId;
   final String token;
+  final String status;         // link_sent|parent_submitted|returned|approved|rejected
   final String studentName;
   final String studentId;
   final String className;
@@ -25,9 +28,14 @@ class _ReviewData {
   final _AddressData address;
   final String busRoute;
   final String busStop;
+  final bool documentRequired;
+  final String? documentInstructions;
+  final String? returnReason;
 
   const _ReviewData({
+    required this.reviewId,
     required this.token,
+    required this.status,
     required this.studentName,
     required this.studentId,
     required this.className,
@@ -40,40 +48,58 @@ class _ReviewData {
     required this.address,
     required this.busRoute,
     required this.busStop,
+    this.documentRequired = false,
+    this.documentInstructions,
+    this.returnReason,
   });
 
   factory _ReviewData.fromJson(Map<String, dynamic> j, String token) {
+    final data = j['data'] as Map<String, dynamic>? ?? j;
     final guardianList =
-        (j['guardians'] as List<dynamic>?)
+        (data['guardians'] as List<dynamic>?)
             ?.map((g) => _GuardianData.fromJson(g as Map<String, dynamic>))
             .toList() ??
         [];
+    final student = data['student'] as Map<String, dynamic>? ?? {};
     return _ReviewData(
-      token:           token,
-      studentName:     j['student_name']  as String? ?? '',
-      studentId:       j['student_id']    as String? ?? '',
-      className:       j['class_name']    as String? ?? '',
-      section:         j['section']       as String? ?? '',
-      schoolName:      j['school_name']   as String? ?? '',
-      branchName:      j['branch_name']   as String? ?? '',
-      schoolLogoUrl:   j['school_logo']   as String?,
-      studentPhotoUrl: j['student_photo'] as String?,
-      guardians:       guardianList,
-      address: _AddressData.fromJson(j['address'] as Map<String, dynamic>? ?? {}),
-      busRoute: j['bus_route'] as String? ?? '',
-      busStop:  j['bus_stop']  as String? ?? '',
+      reviewId:    data['review_id']   as String? ?? '',
+      token:       token,
+      status:      data['status']      as String? ?? 'link_sent',
+      studentName: '${student['first_name'] ?? ''} ${student['last_name'] ?? ''}'.trim(),
+      studentId:   student['student_id']  as String? ?? '',
+      className:   student['class_name']  as String? ?? '',
+      section:     student['section']     as String? ?? '',
+      schoolName:  data['school_name']    as String? ?? '',
+      branchName:  data['branch_name']    as String? ?? '',
+      schoolLogoUrl:   null,
+      studentPhotoUrl: student['photo_url'] as String?,
+      guardians:   guardianList,
+      address: _AddressData(
+        street: student['address_line1'] as String? ?? '',
+        city:   student['city']          as String? ?? '',
+        state:  student['state']         as String? ?? '',
+        pin:    student['zip_code']      as String? ?? '',
+      ),
+      busRoute: student['bus_route'] as String? ?? '',
+      busStop:  student['bus_stop']  as String? ?? '',
+      documentRequired:     (data['document_required'] as dynamic) == true || (data['document_required'] as dynamic) == 1,
+      documentInstructions: data['document_instructions'] as String?,
+      returnReason:         data['return_reason'] as String?,
     );
   }
 
   // Mock for demo
   factory _ReviewData.mock(String token) => _ReviewData(
+        reviewId:    'mock-id',
         token:       token,
+        status:      'link_sent',
         studentName: 'Arjun Kumar',
         studentId:   'STU1015',
         className:   'Class 5',
         section:     'A',
         schoolName:  'Green Valley School',
         branchName:  'Main Branch',
+        documentRequired: false,
         guardians: const [
           _GuardianData(type: 'Mother',    name: 'Sunita Kumar',   phone: '9876543210', whatsapp: '9876543210', email: '',           occupation: 'Homemaker'),
           _GuardianData(type: 'Father',    name: 'Ramesh Kumar',   phone: '9123456789', whatsapp: '9123456789', email: 'r@mail.com', occupation: 'Engineer'),
@@ -142,7 +168,7 @@ final _reviewDataProvider =
     FutureProvider.family<_ReviewData?, String>((ref, token) async {
   if (token.isEmpty) return null;
   try {
-    final data = await ApiService().get('/parent/review/$token');
+    final data = await ApiService().get('/parent/review', params: {'token': token});
     return _ReviewData.fromJson(data, token);
   } catch (_) {
     return _ReviewData.mock(token);
@@ -199,6 +225,9 @@ class _ReviewFormState extends State<_ReviewForm>
   late final TextEditingController _busStopCtrl;
   late final List<_EditableGuardian> _guardians;
 
+  // Document uploads
+  final List<_UploadedDoc> _uploadedDocs = [];
+
   Uint8List? _studentPhoto;
   bool _submitted = false;
   bool _submitting = false;
@@ -206,7 +235,7 @@ class _ReviewFormState extends State<_ReviewForm>
   @override
   void initState() {
     super.initState();
-    _tabCtrl  = TabController(length: 3, vsync: this);
+    _tabCtrl  = TabController(length: 4, vsync: this); // +1 for Documents tab
     final d   = widget.data;
     _addressCtrl  = TextEditingController(text: d.address.street);
     _cityCtrl     = TextEditingController(text: d.address.city);
@@ -239,31 +268,73 @@ class _ReviewFormState extends State<_ReviewForm>
     setState(() => _studentPhoto = bytes);
   }
 
+  Future<void> _pickDocument() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'heic'],
+        allowMultiple: true,
+        withData: true,
+      );
+      if (result == null) return;
+      setState(() {
+        for (final f in result.files) {
+          _uploadedDocs.add(_UploadedDoc(name: f.name, bytes: f.bytes, sizeKb: (f.size / 1024).ceil()));
+        }
+      });
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not pick files: $e'), backgroundColor: AppTheme.error));
+    }
+  }
+
+  void _removeDoc(int index) => setState(() => _uploadedDocs.removeAt(index));
+
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() => _submitting = true);
 
+    // Enforce mandatory doc upload
+    if (widget.data.documentRequired && _uploadedDocs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Please upload the required documents before submitting.'),
+        backgroundColor: AppTheme.error,
+      ));
+      _tabCtrl.animateTo(3); // Jump to Documents tab
+      return;
+    }
+
+    setState(() => _submitting = true);
     try {
-      await ApiService().post('/parent/review/${widget.data.token}/submit', body: {
-        'address': {
-          'street': _addressCtrl.text.trim(),
-          'city':   _cityCtrl.text.trim(),
-          'state':  _stateCtrl.text.trim(),
-          'pin':    _pinCtrl.text.trim(),
+      // In production, upload files to Firebase Storage first,
+      // then pass the URLs. Here we pass file metadata (URL stubbed).
+      final docPayload = _uploadedDocs.map((d) => {
+        'file_name':    d.name,
+        'file_url':     d.uploadedUrl ?? 'pending_upload',
+        'file_size_kb': d.sizeKb,
+      }).toList();
+
+      await ApiService().post('/parent/review', body: {
+        'token': widget.data.token,
+        'student_data': {
+          'address_line1': _addressCtrl.text.trim(),
+          'city':          _cityCtrl.text.trim(),
+          'state':         _stateCtrl.text.trim(),
+          'zip_code':      _pinCtrl.text.trim(),
+          'bus_route':     _busRouteCtrl.text.trim(),
+          'bus_stop':      _busStopCtrl.text.trim(),
         },
-        'bus_route': _busRouteCtrl.text.trim(),
-        'bus_stop':  _busStopCtrl.text.trim(),
-        'guardians': _guardians.map((g) => {
-          'type':       g.type,
-          'name':       g.nameCtrl.text.trim(),
-          'phone':      g.phoneCtrl.text.trim(),
-          'whatsapp':   g.whatsappCtrl.text.trim(),
-          'email':      g.emailCtrl.text.trim(),
-          'occupation': g.occupationCtrl.text.trim(),
+        'guardians_data': _guardians.map((g) => {
+          'guardian_type': g.type,
+          'first_name':    g.nameCtrl.text.trim(),
+          'phone':         g.phoneCtrl.text.trim(),
+          'whatsapp_no':   g.whatsappCtrl.text.trim(),
+          'email':         g.emailCtrl.text.trim(),
+          'occupation':    g.occupationCtrl.text.trim(),
         }).toList(),
+        'documents': docPayload,
       });
     } catch (_) {
-      // Also treat as success for demo
+      // Treat as success in demo mode
     } finally {
       if (mounted) setState(() { _submitting = false; _submitted = true; });
     }
@@ -286,6 +357,10 @@ class _ReviewFormState extends State<_ReviewForm>
             schoolLogoUrl: d.schoolLogoUrl,
           ),
 
+          // Return-to-parent banner
+          if (d.status == 'returned' && d.returnReason != null)
+            _ReturnedBanner(reason: d.returnReason!),
+
           // Student info card
           _StudentInfoCard(
             data:         d,
@@ -302,6 +377,7 @@ class _ReviewFormState extends State<_ReviewForm>
                 Tab(icon: Icon(Icons.family_restroom, size: 16), text: 'Guardians'),
                 Tab(icon: Icon(Icons.home, size: 16), text: 'Address'),
                 Tab(icon: Icon(Icons.directions_bus, size: 16), text: 'Transport'),
+                Tab(icon: Icon(Icons.attach_file, size: 16), text: 'Documents'),
               ],
             ),
           ),
@@ -320,6 +396,13 @@ class _ReviewFormState extends State<_ReviewForm>
                 _TransportTab(
                   routeCtrl: _busRouteCtrl,
                   stopCtrl:  _busStopCtrl,
+                ),
+                _DocumentsTab(
+                  docs:         _uploadedDocs,
+                  isRequired:   d.documentRequired,
+                  instructions: d.documentInstructions,
+                  onPickFiles:  _pickDocument,
+                  onRemove:     _removeDoc,
                 ),
               ],
             ),
@@ -870,6 +953,234 @@ class _ExpiredLinkScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Upload Doc Model ──────────────────────────────────────────
+class _UploadedDoc {
+  final String name;
+  final Uint8List? bytes;
+  final int sizeKb;
+  String? uploadedUrl; // Set after Firebase upload
+
+  _UploadedDoc({required this.name, this.bytes, required this.sizeKb});
+
+  IconData get icon {
+    final ext = name.split('.').last.toLowerCase();
+    if (ext == 'pdf') return Icons.picture_as_pdf;
+    if (['doc', 'docx'].contains(ext)) return Icons.description;
+    return Icons.image;
+  }
+
+  Color get iconColor {
+    final ext = name.split('.').last.toLowerCase();
+    if (ext == 'pdf') return const Color(0xFFE53935);
+    if (['doc', 'docx'].contains(ext)) return const Color(0xFF1565C0);
+    return const Color(0xFF2E7D32);
+  }
+}
+
+// ── Returned Banner ───────────────────────────────────────────
+class _ReturnedBanner extends StatelessWidget {
+  final String reason;
+  const _ReturnedBanner({required this.reason});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        border: Border.all(color: const Color(0xFFFFA726)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.undo_rounded, color: Color(0xFFF57C00), size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Returned for Revision',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: const Color(0xFFE65100),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  reason,
+                  style: GoogleFonts.poppins(fontSize: 12, color: const Color(0xFF6D4C41)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.1);
+  }
+}
+
+// ── Documents Tab ─────────────────────────────────────────────
+class _DocumentsTab extends StatelessWidget {
+  final List<_UploadedDoc> docs;
+  final bool isRequired;
+  final String? instructions;
+  final VoidCallback onPickFiles;
+  final void Function(int) onRemove;
+
+  const _DocumentsTab({
+    required this.docs,
+    required this.isRequired,
+    this.instructions,
+    required this.onPickFiles,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Mandatory / instructions banner
+          if (isRequired || instructions != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: isRequired
+                    ? const Color(0xFFFCE4EC)
+                    : const Color(0xFFE3F2FD),
+                border: Border.all(
+                    color: isRequired
+                        ? const Color(0xFFEF9A9A)
+                        : const Color(0xFF90CAF9)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    isRequired ? Icons.attach_file : Icons.info_outline,
+                    size: 18,
+                    color: isRequired
+                        ? const Color(0xFFC62828)
+                        : const Color(0xFF1565C0),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (isRequired)
+                          Text(
+                            '📎 Document Upload Required',
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                              color: const Color(0xFFC62828),
+                            ),
+                          ),
+                        if (instructions != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            instructions!,
+                            style: GoogleFonts.poppins(
+                                fontSize: 12, color: const Color(0xFF37474F)),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // Upload button
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onPickFiles,
+              icon: const Icon(Icons.upload_file),
+              label: Text(
+                'Pick PDF, DOCX or Images',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+              ),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                side: const BorderSide(color: AppTheme.primary),
+                foregroundColor: AppTheme.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Files list
+          if (docs.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Column(
+                  children: [
+                    const Icon(Icons.folder_open,
+                        color: AppTheme.grey400, size: 48),
+                    const SizedBox(height: 8),
+                    Text(
+                      isRequired
+                          ? 'At least one document is required'
+                          : 'No documents added yet',
+                      style: GoogleFonts.poppins(
+                          color: isRequired ? AppTheme.error : AppTheme.grey500,
+                          fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ...docs.asMap().entries.map((entry) {
+              final i   = entry.key;
+              final doc = entry.value;
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+                child: ListTile(
+                  leading: Icon(doc.icon, color: doc.iconColor, size: 32),
+                  title: Text(
+                    doc.name,
+                    style: GoogleFonts.poppins(
+                        fontSize: 13, fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '${doc.sizeKb} KB',
+                    style: GoogleFonts.poppins(
+                        fontSize: 11, color: AppTheme.grey500),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline,
+                        color: AppTheme.error),
+                    onPressed: () => onRemove(i),
+                  ),
+                ),
+              ).animate(delay: (i * 60).ms).fadeIn().slideX(begin: 0.1);
+            }),
+        ],
       ),
     );
   }

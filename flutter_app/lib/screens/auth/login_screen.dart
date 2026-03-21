@@ -916,27 +916,28 @@ class _OtpBox extends StatelessWidget {
         maxLength: 1,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         style: GoogleFonts.poppins(
-            color: Colors.white,
-            fontSize: 22,
+            color: AppTheme.primary, // Dark text on white box
+            fontSize: 24,
+            fontWeight: FontWeight.w800),
             fontWeight: FontWeight.w700),
         decoration: InputDecoration(
           counterText: '',
           filled: true,
-          fillColor: Colors.white.withOpacity(0.06),
+          fillColor: Colors.white, // High contrast background for the box
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide:
-                BorderSide(color: Colors.white.withOpacity(0.12)),
+                const BorderSide(color: Colors.white),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide:
-                BorderSide(color: Colors.white.withOpacity(0.12)),
+                const BorderSide(color: Colors.white),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide:
-                const BorderSide(color: AppTheme.secondary, width: 2),
+                const BorderSide(color: AppTheme.secondary, width: 2.5),
           ),
           contentPadding: EdgeInsets.zero,
         ),

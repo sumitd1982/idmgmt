@@ -21,8 +21,9 @@ router.get('/', authenticate, async (req, res, next) => {
     if (include_hidden !== 'true') where.push('(e.is_hidden IS NULL OR e.is_hidden = FALSE)');
 
     // Security: Only super_admin can override the school context
-    const effectiveSchoolId = req.user.role === 'super_admin' 
-      ? (school_id || req.employee?.school_id) 
+    const isSchoolScoped = req.user.role === 'super_admin' || req.user.role === 'school_owner';
+    const effectiveSchoolId = isSchoolScoped
+      ? (school_id || req.employee?.school_id || req.user.school_id)
       : req.employee?.school_id;
 
     // Non-super_admin with no school context sees nothing
@@ -73,7 +74,7 @@ router.get('/:id', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/', authenticate, requireRole('super_admin','principal','vp','head_teacher'), async (req, res, next) => {
+router.post('/', authenticate, requireRole('super_admin','school_owner','principal','vp','head_teacher'), async (req, res, next) => {
   try {
     const id = uuid();
     const { branch_id, employee_id, org_role_id, reports_to_emp_id,
@@ -164,7 +165,7 @@ router.put('/:id', authenticate, async (req, res, next) => {
 });
 
 // Soft delete (deactivate) employee
-router.delete('/:id', authenticate, requireRole('super_admin','principal','vp'), async (req, res, next) => {
+router.delete('/:id', authenticate, requireRole('super_admin','school_owner','principal','vp'), async (req, res, next) => {
   try {
     const [emp] = await query('SELECT id FROM employees WHERE id = ?', [req.params.id]);
     if (!emp) return res.status(404).json({ success: false, message: 'Employee not found' });
@@ -204,9 +205,10 @@ router.get('/bulk-template/download', authenticate, async (req, res, next) => {
 router.get('/org-tree/:school_id', authenticate, async (req, res, next) => {
   try {
     const schoolId = req.params.school_id;
-    // Security: Only super_admin can override the school context
-    const effectiveSchoolId = req.user.role === 'super_admin' 
-      ? (schoolId || req.employee?.school_id) 
+    // Security: Only super_admin/school_owner can override the school context
+    const isSchoolScoped = req.user.role === 'super_admin' || req.user.role === 'school_owner';
+    const effectiveSchoolId = isSchoolScoped
+      ? (schoolId || req.employee?.school_id || req.user.school_id)
       : req.employee?.school_id;
 
     if (!effectiveSchoolId || (req.user.role !== 'super_admin' && effectiveSchoolId !== schoolId)) {

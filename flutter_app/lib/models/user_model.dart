@@ -1,4 +1,17 @@
-class AppUser {
+import 'dart:convert';
+
+final class AppUser {
+  static Map<String, dynamic> _parsePrefs(dynamic prefs) {
+    if (prefs == null) return {};
+    if (prefs is Map<String, dynamic>) return prefs;
+    if (prefs is String) {
+      if (prefs.isEmpty) return {};
+      try {
+        return jsonDecode(prefs) as Map<String, dynamic>;
+      } catch (_) { return {}; }
+    }
+    return {};
+  }
   final String id;
   final String? firebaseUid;
   final String? email;
@@ -7,6 +20,7 @@ class AppUser {
   final String? photoUrl;
   final String role;
   final bool isActive;
+  final String? schoolId;
   final bool needsOnboarding;
   final AppEmployee? employee;
 
@@ -19,9 +33,13 @@ class AppUser {
     this.photoUrl,
     required this.role,
     required this.isActive,
+    this.schoolId,
     this.needsOnboarding = false,
+    this.preferences = const {},
     this.employee,
   });
+
+  final Map<String, dynamic> preferences;
 
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
     id:              json['id'] as String,
@@ -31,17 +49,21 @@ class AppUser {
     fullName:        json['full_name'] as String? ?? '',
     photoUrl:        json['photo_url'] as String?,
     role:            json['role'] as String? ?? 'viewer',
-    isActive:        (json['is_active'] as int?) == 1,
+    isActive:        (json['is_active'] is int) ? (json['is_active'] as int) == 1 : (json['is_active'] as bool? ?? true),
+    schoolId:        json['school_id'] as String?,
     needsOnboarding: json['needs_onboarding'] as bool? ?? false,
+    preferences:     _parsePrefs(json['preferences']),
     employee:        json['employee'] != null
                        ? AppEmployee.fromJson(json['employee'] as Map<String, dynamic>)
                        : null,
   );
 
-  bool get isAdmin     => ['super_admin','school_admin','branch_admin'].contains(role);
-  bool get isPrincipal => role == 'principal';
-  bool get isTeacher   => role.contains('teacher');
-  bool get isParent    => role == 'parent';
+  bool get isAdmin       => ['super_admin','school_admin','branch_admin', 'school_owner'].contains(role);
+  bool get isSchoolOwner => role == 'school_owner';
+  bool get isPrincipal   => role == 'principal';
+  bool get isTeacher     => role.contains('teacher');
+  bool get isParent      => role == 'parent';
+  bool get isSuperAdmin  => role == 'super_admin';
 
   String get displayName => fullName.isNotEmpty ? fullName : email ?? phone ?? 'User';
 }

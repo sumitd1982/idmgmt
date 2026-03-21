@@ -184,6 +184,14 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
           backgroundColor: AppTheme.statusGreen,
         ),
       );
+
+      // Refresh user role & school state immediately
+      await ref.read(authNotifierProvider.notifier).refreshUser();
+      
+      // Invalidate relevant providers to force fresh data on next visit
+      ref.invalidate(_schoolDetailProvider);
+      
+      if (!mounted) return;
       Navigator.of(context).pop();
     } catch (e) {
       setState(() => _saving = false);

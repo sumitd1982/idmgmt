@@ -13,6 +13,35 @@ ALTER TABLE org_roles ADD COLUMN permissions JSON NULL COMMENT '{"can_manage_att
 -- 2. Add settings JSON to schools
 ALTER TABLE schools ADD COLUMN settings JSON NULL COMMENT '{"is_messaging_enabled": true}';
 
+-- 2.5 Add school_id to users for permission sync
+ALTER TABLE users ADD COLUMN school_id VARCHAR(36) CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci NULL AFTER preferences;
+
+-- 2.6 Add user_id to guardians for parent login linking
+ALTER TABLE guardians ADD COLUMN user_id VARCHAR(36) NULL AFTER is_primary;
+ALTER TABLE guardians ADD INDEX idx_guardians_user (user_id);
+
+-- 2.7 Extend parent_reviews for document workflow
+ALTER TABLE parent_reviews ADD COLUMN document_required BOOLEAN DEFAULT FALSE AFTER review_notes;
+ALTER TABLE parent_reviews ADD COLUMN document_instructions TEXT NULL AFTER document_required;
+ALTER TABLE parent_reviews ADD COLUMN return_reason TEXT NULL AFTER document_instructions;
+ALTER TABLE parent_reviews MODIFY COLUMN status ENUM('link_sent','parent_submitted','returned','approved','rejected','expired') DEFAULT 'link_sent';
+
+-- 2.8 Review documents table
+CREATE TABLE IF NOT EXISTS review_documents (
+    id            VARCHAR(36)   NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+    review_id     VARCHAR(36)   NOT NULL,
+    uploader_id   VARCHAR(36)   NOT NULL COMMENT 'users.id of uploader',
+    file_name     VARCHAR(255)  NOT NULL,
+    file_type     ENUM('pdf','docx','image','other') NOT NULL DEFAULT 'other',
+    file_url      VARCHAR(1024) NOT NULL,
+    file_size_kb  INT           NULL,
+    description   VARCHAR(255)  NULL,
+    uploaded_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (review_id) REFERENCES parent_reviews(id) ON DELETE CASCADE,
+    INDEX idx_rdoc_review (review_id),
+    INDEX idx_rdoc_uploader (uploader_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 3. Employee Extra Roles Mapping
 CREATE TABLE IF NOT EXISTS employee_extra_roles (
     employee_id VARCHAR(36) NOT NULL,

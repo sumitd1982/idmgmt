@@ -31,9 +31,10 @@ router.get('/', authenticate, async (req, res, next) => {
     let where = ['s.is_active = TRUE'];
     let params = [];
 
-    // Security: Only super_admin can override the school context
-    const effectiveSchoolId = req.user.role === 'super_admin' 
-      ? (school_id || req.employee?.school_id) 
+    // Security: Only super_admin/school_owner can override the school context
+    const isSchoolScoped = req.user.role === 'super_admin' || req.user.role === 'school_owner';
+    const effectiveSchoolId = isSchoolScoped
+      ? (school_id || req.employee?.school_id || req.user.school_id)
       : req.employee?.school_id;
 
     // Non-super_admin with no school context sees nothing
@@ -133,10 +134,14 @@ router.get('/:id', authenticate, async (req, res, next) => {
     );
     if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
 
-    // Non-super_admin can only view students in their own school
-    if (req.user.role !== 'super_admin') {
+    // Non-super_admin/school_owner can only view students in their own school
+    if (req.user.role !== 'super_admin' && req.user.role !== 'school_owner') {
       if (!req.employee || req.employee.school_id !== student.school_id) {
         return res.status(403).json({ success: false, message: 'Not authorized to view this student' });
+      }
+    } else if (req.user.role === 'school_owner') {
+      if (req.user.school_id !== student.school_id) {
+         return res.status(403).json({ success: false, message: 'Not authorized to view this student' });
       }
     }
 
@@ -152,12 +157,12 @@ router.post('/', authenticate, async (req, res, next) => {
             roll_number, class_name, section, admission_no, aadhaar_no, phone,
             email, address_line1, city, state, zip_code, guardians = [] } = req.body;
 
-    // Security: Only super_admin can specify a school_id for other schools
+    // Security: Only super_admin/school_owner can specify a school_id for other schools
     let effectiveSchoolId;
     if (req.user.role === 'super_admin') {
       effectiveSchoolId = school_id || req.employee?.school_id;
-    } else if (['school_admin', 'principal'].includes(req.user.role)) {
-      effectiveSchoolId = req.employee?.school_id;
+    } else if (['school_admin', 'school_owner', 'principal'].includes(req.user.role)) {
+      effectiveSchoolId = req.user.role === 'school_owner' ? (req.user.school_id || school_id) : req.employee?.school_id;
       if (school_id && school_id !== effectiveSchoolId) {
         return res.status(403).json({ success: false, message: 'Not authorized to create students in other schools' });
       }
@@ -225,12 +230,17 @@ router.post('/', authenticate, async (req, res, next) => {
 // ── PUT /students/:id ─────────────────────────────────────────
 router.put('/:id', authenticate, async (req, res, next) => {
   try {
-    // Non-super_admin can only edit students in their own school
-    if (req.user.role !== 'super_admin') {
+    // Non-super_admin/school_owner can only edit students in their own school
+    if (req.user.role !== 'super_admin' && req.user.role !== 'school_owner') {
       const [existing] = await query('SELECT school_id FROM students WHERE id = ?', [req.params.id]);
       if (!existing || !req.employee || req.employee.school_id !== existing.school_id) {
         return res.status(403).json({ success: false, message: 'Not authorized to edit this student' });
       }
+    } else if (req.user.role === 'school_owner') {
+       const [existing] = await query('SELECT school_id FROM students WHERE id = ?', [req.params.id]);
+       if (!existing || existing.school_id !== req.user.school_id) {
+         return res.status(403).json({ success: false, message: 'Not authorized to edit this student' });
+       }
     }
     const allowed = ['roll_number','class_name','section','first_name','last_name','middle_name',
       'date_of_birth','gender','blood_group','nationality','religion','category','aadhaar_no',
@@ -273,7 +283,7 @@ router.put('/:id', authenticate, async (req, res, next) => {
 });
 
 // ── DELETE /students/:id (soft delete) ────────────────────────
-router.delete('/:id', authenticate, requireRole('super_admin','principal','vp','head_teacher'), async (req, res, next) => {
+router.delete('/:id', authenticate, requireRole('super_admin','school_owner','principal','vp','head_teacher'), async (req, res, next) => {
   try {
     await query('UPDATE students SET is_active = FALSE WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Student deactivated' });

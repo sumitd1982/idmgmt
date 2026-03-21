@@ -90,6 +90,22 @@ class _PendingReview {
   });
 }
 
+class _LoginStatusReport {
+  final int empTotal;
+  final int empLinked;
+  final int guardTotal;
+  final int guardLinked;
+  final List<Map<String, dynamic>> recentLogins;
+
+  const _LoginStatusReport({
+    required this.empTotal,
+    required this.empLinked,
+    required this.guardTotal,
+    required this.guardLinked,
+    required this.recentLogins,
+  });
+}
+
 // ── Providers ─────────────────────────────────────────────────
 final _reportSummaryProvider = FutureProvider<_ReportSummary>((ref) async {
   try {
@@ -117,6 +133,22 @@ final _teacherReportProvider = FutureProvider<List<_TeacherReport>>((ref) async 
 
 final _pendingReviewsProvider = FutureProvider<List<_PendingReview>>((ref) async {
   return _mockPendingReviews;
+});
+
+final _loginStatusProvider = FutureProvider<_LoginStatusReport>((ref) async {
+  try {
+    final res = await ApiService().get('/reports/login-status');
+    final data = res['data'] as Map<String, dynamic>;
+    return _LoginStatusReport(
+      empTotal:    (data['employees']['total'] as num).toInt(),
+      empLinked:   (data['employees']['linked'] as num?)?.toInt() ?? 0,
+      guardTotal:  (data['guardians']['total'] as num).toInt(),
+      guardLinked: (data['guardians']['linked'] as num?)?.toInt() ?? 0,
+      recentLogins: List<Map<String, dynamic>>.from(data['recent_logins'] ?? []),
+    );
+  } catch (_) {
+    return const _LoginStatusReport(empTotal: 0, empLinked: 0, guardTotal: 0, guardLinked: 0, recentLogins: []);
+  }
 });
 
 const _mockClassReports = [
@@ -161,7 +193,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 5, vsync: this);
+    _tabCtrl = TabController(length: 6, vsync: this);
   }
 
   @override
@@ -197,6 +229,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
                 Tab(text: 'By Class'),
                 Tab(text: 'By Teacher'),
                 Tab(text: 'Pending Reviews'),
+                Tab(text: 'Login Status'),
                 Tab(text: 'Export'),
               ],
             ),
@@ -211,6 +244,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen>
                 _ByClassTab(),
                 _ByTeacherTab(),
                 _PendingReviewsTab(),
+                _LoginStatusTab(),
                 _ExportTab(),
               ],
             ),
@@ -945,6 +979,131 @@ class _PendingReviewsTab extends ConsumerWidget {
 }
 
 // ── Export Tab ────────────────────────────────────────────────
+// ── Login Status Tab ──────────────────────────────────────────
+class _LoginStatusTab extends ConsumerWidget {
+  const _LoginStatusTab({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final statusAsync = ref.watch(_loginStatusProvider);
+
+    return statusAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error:   (e, _) => Center(child: Text('Error: $e')),
+      data:    (s) => SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(child: _EngagementCard(
+                  title: 'Employee Engagement',
+                  total: s.empTotal,
+                  linked: s.empLinked,
+                  icon: Icons.badge,
+                  color: AppTheme.primary,
+                )),
+                const SizedBox(width: 16),
+                Expanded(child: _EngagementCard(
+                  title: 'Parent Engagement',
+                  total: s.guardTotal,
+                  linked: s.guardLinked,
+                  icon: Icons.family_restroom,
+                  color: AppTheme.accent,
+                )),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Recent Active Sessions',
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16)),
+                    const SizedBox(height: 16),
+                    if (s.recentLogins.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Center(child: Text('No recent logins found')),
+                      )
+                    else
+                      ...s.recentLogins.map((u) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: AppTheme.grey100,
+                          child: Text(u['display_name'] != null && u['display_name'].isNotEmpty 
+                            ? u['display_name'][0].toUpperCase() 
+                            : 'U'),
+                        ),
+                        title: Text(u['display_name'] ?? 'User', style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13)),
+                        subtitle: Text('${u['role']} • ${u['phone']}', style: const TextStyle(fontSize: 11)),
+                        trailing: Text(
+                          u['last_login'] != null ? 'Active' : 'Never',
+                          style: const TextStyle(fontSize: 10, color: AppTheme.statusGreen),
+                        ),
+                      )),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EngagementCard extends StatelessWidget {
+  final String title;
+  final int total;
+  final int linked;
+  final IconData icon;
+  final Color color;
+
+  const _EngagementCard({
+    required this.title,
+    required this.total,
+    required this.linked,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = total > 0 ? (linked / total) : 0.0;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text(title, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12))),
+              ],
+            ),
+            const SizedBox(height: 16),
+            CircularPercentIndicator(
+              radius: 40,
+              lineWidth: 8,
+              percent: pct.clamp(0.0, 1.0),
+              center: Text('${(pct * 100).toStringAsFixed(0)}%', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+              progressColor: color,
+              backgroundColor: color.withOpacity(0.1),
+              circularStrokeCap: CircularStrokeCap.round,
+            ),
+            const SizedBox(height: 12),
+            Text('$linked / $total Linked', style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ExportTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {

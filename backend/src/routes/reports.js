@@ -110,6 +110,59 @@ router.get('/class-summary', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /reports/login-status ─────────────────────────────────
+router.get('/login-status', authenticate, requireRole('super_admin', 'school_owner'), async (req, res, next) => {
+  try {
+    const schoolId = req.employee?.school_id || req.query.school_id;
+    if (!schoolId && req.user.role !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'School ID required' });
+    }
+
+    const where = schoolId ? 'WHERE school_id = ?' : '';
+    const params = schoolId ? [schoolId] : [];
+
+    // 1. Employee Login Status
+    const employees = await query(
+      `SELECT 
+         COUNT(*) AS total,
+         SUM(user_id IS NOT NULL) AS linked,
+         SUM(user_id IS NULL) AS unlinked
+       FROM employees ${where}`, params
+    );
+
+    // 2. Guardian Login Status
+    // Guardians are linked to students, so we filter by student's school_id
+    const guardians = await query(
+      `SELECT 
+         COUNT(g.id) AS total,
+         SUM(u.id IS NOT NULL) AS linked,
+         SUM(u.id IS NULL) AS unlinked
+       FROM guardians g
+       JOIN students s ON s.id = g.student_id
+       LEFT JOIN users u ON u.phone = g.phone AND u.role = 'parent'
+       ${schoolId ? 'WHERE s.school_id = ?' : ''}`, params
+    );
+
+    // 3. Recent Logins (Last 50)
+    const recentLogins = await query(
+      `SELECT u.id, u.full_name, u.display_name, u.role, u.last_login, u.phone, u.email
+       FROM users u
+       WHERE u.last_login IS NOT NULL
+       ORDER BY u.last_login DESC
+       LIMIT 50`
+    );
+
+    res.json({
+      success: true,
+      data: {
+        employees: employees[0],
+        guardians: guardians[0],
+        recent_logins: recentLogins
+      }
+    });
+  } catch (err) { next(err); }
+});
+
 // ── GET /reports/n-plus-one — hierarchical report for a manager
 router.get('/n-plus-one', authenticate, async (req, res, next) => {
   try {

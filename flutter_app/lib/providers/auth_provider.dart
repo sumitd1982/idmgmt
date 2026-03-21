@@ -100,6 +100,15 @@ class AuthNotifier extends StateNotifier<AsyncValue<AppUser?>> {
     }
   }
 
+  Future<void> refreshUser() async {
+    try {
+      final appUser = await _service.getCurrentUser();
+      state = AsyncValue.data(appUser);
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+    }
+  }
+
   Future<void> signOut() async {
     await _service.signOut();
     state = const AsyncValue.data(null);
