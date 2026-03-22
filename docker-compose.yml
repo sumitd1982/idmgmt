@@ -1,7 +1,7 @@
 # ============================================================
 # ID MANAGEMENT SYSTEM — Docker Compose
 # Runs alongside ai_trade_bot on trading-network
-# Access: https://80.225.246.32/idmgmt
+# Access: https://80.225.246.32.nip.io/idmgmt
 # ============================================================
 
 services:
@@ -60,7 +60,7 @@ services:
       DB_NAME:     idmgmt
       DB_USER:     idmgmt
       DB_PASSWORD: ${DB_PASSWORD:-idmgmt_pass}
-      APP_BASE_URL: https://80.225.246.32
+      APP_BASE_URL: https://80.225.246.32.nip.io
     volumes:
       - idmgmt_uploads:/app/uploads
       - idmgmt_logs:/app/logs

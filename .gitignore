@@ -6,3 +6,20 @@ flutter_app/.flutter-plugins-dependencies
 flutter_app/build/
 sent_the_code_to_git.sh
 pull_code_from_git_main.sh
+.env
+.env.local
+.env.*
+# OS generated files
+.DS_Store
+Thumbs.db
+node_modules/
+npm-debug.log*
+# Flutter/Dart (Frontend) build files
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+
+# IDEs
+.vscode/
+.idea/

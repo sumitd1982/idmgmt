@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../config/theme.dart';
+import '../../models/portal_theme_model.dart';
 import '../../services/api_service.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
@@ -55,7 +56,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _RoleConfig(level: 6, name: 'Subject Teacher', code: 'subject_teacher',canApprove: false,canBulk: false),
   ];
 
-  // Step 4 — Invites
+  // Step 2 — Theme selection
+  PortalTheme _selectedTheme = PortalThemes.classicIndigo;
+  AppLayout _selectedLayout  = AppLayout.modern;
+
+  // Step 4 — Invites (now step 5)
   final List<TextEditingController> _invitePhoneCtrls = [
     TextEditingController(),
   ];
@@ -64,6 +69,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   static const _steps = [
     'School Details',
     'Branch Details',
+    'Choose Theme',
     'My Profile',
     'Define Roles',
     'Invite Team',
@@ -96,9 +102,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       switch (_step) {
         case 0: await _saveSchool(); break;
         case 1: await _saveBranch(); break;
-        case 2: await _saveProfile(); break;
-        case 3: await _saveRoles(); break;
-        case 4: await _sendInvites(); break;
+        case 2: await _saveTheme(); break;
+        case 3: await _saveProfile(); break;
+        case 4: await _saveRoles(); break;
+        case 5: await _sendInvites(); break;
       }
       if (_step < _steps.length - 1) {
         setState(() => _step++);
@@ -149,6 +156,22 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       'email':        '',
     });
     _branchId = (resp['data'] as Map?)?['id'] as String?;
+  }
+
+  Future<void> _saveTheme() async {
+    // Save theme selection to the school's settings and user preferences
+    if (_schoolId != null) {
+      await ApiService().put('/schools/$_schoolId', body: {
+        'settings': {
+          'portal_theme_id': _selectedTheme.id,
+          'portal_layout': _selectedLayout.name,
+        },
+      });
+    }
+    await ApiService().put('/users/preferences', body: {
+      'portal_theme_id': _selectedTheme.id,
+      'layout': _selectedLayout.name,
+    });
   }
 
   Future<void> _saveProfile() async {
@@ -324,7 +347,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                               child: const Text('Back'),
                             ),
                           const Spacer(),
-                          if (_step == 4) // Last step — allow skip invites
+                          if (_step == 5) // Last step — allow skip invites
                             TextButton(
                               onPressed: _saving ? null : () => context.go('/dashboard'),
                               child: const Text('Skip & Finish'),
@@ -357,9 +380,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     switch (step) {
       case 0: return 'Enter your school\'s basic information';
       case 1: return 'Set up your first branch or campus';
-      case 2: return 'Tell us about yourself (the admin)';
-      case 3: return 'Review and customise staff role permissions';
-      case 4: return 'Invite teachers and staff to join';
+      case 2: return 'Pick a look for your portal — you can change this later in Settings';
+      case 3: return 'Tell us about yourself (the admin)';
+      case 4: return 'Review and customise staff role permissions';
+      case 5: return 'Invite teachers and staff to join';
       default: return '';
     }
   }
@@ -368,9 +392,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     switch (step) {
       case 0: return _buildSchoolStep();
       case 1: return _buildBranchStep();
-      case 2: return _buildProfileStep();
-      case 3: return _buildRolesStep();
-      case 4: return _buildInvitesStep();
+      case 2: return _buildThemeStep();
+      case 3: return _buildProfileStep();
+      case 4: return _buildRolesStep();
+      case 5: return _buildInvitesStep();
       default: return const SizedBox.shrink();
     }
   }
@@ -425,6 +450,85 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _Field(ctrl: _branchCodeCtrl,  label: 'Branch Code *', hint: 'MAIN'),
       _Field(ctrl: _branchPhoneCtrl, label: 'Branch Phone',  hint: '9800000001', keyboard: TextInputType.phone),
       _Field(ctrl: _branchCityCtrl,  label: 'City',          hint: 'Delhi'),
+    ]);
+  }
+
+  Widget _buildThemeStep() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // Theme grid
+      Text('Portal Theme', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.grey800)),
+      const SizedBox(height: 10),
+      GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 0.85,
+        ),
+        itemCount: PortalThemes.all.length,
+        itemBuilder: (_, i) {
+          final theme = PortalThemes.all[i];
+          final sel = theme.id == _selectedTheme.id;
+          return GestureDetector(
+            onTap: () => setState(() => _selectedTheme = theme),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: sel ? theme.primaryColor : AppTheme.grey200, width: sel ? 2.5 : 1),
+                boxShadow: sel ? [BoxShadow(color: theme.primaryColor.withOpacity(0.2), blurRadius: 10)] : [],
+              ),
+              child: Column(children: [
+                Expanded(child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+                  child: _ThemeMiniPreview(theme: theme),
+                )),
+                Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Row(children: [
+                    Expanded(child: Text(theme.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(fontSize: 10, fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                        color: sel ? theme.primaryColor : AppTheme.grey700))),
+                    if (sel) Icon(Icons.check_circle, size: 14, color: theme.primaryColor),
+                  ]),
+                ),
+              ]),
+            ),
+          );
+        },
+      ),
+      const SizedBox(height: 24),
+      // Layout row
+      Text('Layout', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.grey800)),
+      const SizedBox(height: 10),
+      Row(children: AppLayout.values.map((l) {
+        final sel = l == _selectedLayout;
+        return Expanded(child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: GestureDetector(
+            onTap: () => setState(() => _selectedLayout = l),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: sel ? AppTheme.primary.withOpacity(0.07) : Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: sel ? AppTheme.primary : AppTheme.grey200, width: sel ? 2 : 1),
+              ),
+              child: Column(children: [
+                Icon(l.icon, size: 22, color: sel ? AppTheme.primary : AppTheme.grey400),
+                const SizedBox(height: 4),
+                Text(l.label, textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(fontSize: 10, fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                    color: sel ? AppTheme.primary : AppTheme.grey600)),
+              ]),
+            ),
+          ),
+        ));
+      }).toList()),
     ]);
   }
 
@@ -529,6 +633,53 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
   );
+}
+
+// ── Theme Mini Preview (used in onboarding theme step) ────────
+class _ThemeMiniPreview extends StatelessWidget {
+  final PortalTheme theme;
+  const _ThemeMiniPreview({required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: theme.bodyColor,
+      child: Column(children: [
+        Container(height: 16, color: theme.headerColor,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Row(children: [
+            Container(width: 5, height: 5, decoration: BoxDecoration(color: Colors.white.withOpacity(0.7), shape: BoxShape.circle)),
+            const SizedBox(width: 3),
+            Expanded(child: Container(height: 3, decoration: BoxDecoration(color: Colors.white.withOpacity(0.3), borderRadius: BorderRadius.circular(2)))),
+          ]),
+        ),
+        Expanded(child: Row(children: [
+          Container(width: 18, color: theme.menuColor,
+            padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 2),
+            child: Column(children: [
+              for (int i = 0; i < 4; i++) ...[
+                Container(height: 3, decoration: BoxDecoration(color: i == 0 ? theme.accentColor : Colors.white.withOpacity(0.3), borderRadius: BorderRadius.circular(1))),
+                const SizedBox(height: 3),
+              ],
+            ]),
+          ),
+          Expanded(child: Padding(
+            padding: const EdgeInsets.all(3),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(height: 4, width: 30, decoration: BoxDecoration(color: theme.primaryColor.withOpacity(0.7), borderRadius: BorderRadius.circular(1))),
+              const SizedBox(height: 3),
+              Row(children: [
+                Expanded(child: Container(height: 14, decoration: BoxDecoration(color: theme.cardColor, borderRadius: BorderRadius.circular(2), border: Border.all(color: Colors.black.withOpacity(0.05))))),
+                const SizedBox(width: 2),
+                Expanded(child: Container(height: 14, decoration: BoxDecoration(color: theme.cardColor, borderRadius: BorderRadius.circular(2), border: Border.all(color: Colors.black.withOpacity(0.05))))),
+              ]),
+            ]),
+          )),
+        ])),
+        Container(height: 6, color: theme.footerColor),
+      ]),
+    );
+  }
 }
 
 // ── Role Config ───────────────────────────────────────────────

@@ -1,5 +1,7 @@
+import 'dart:html' as html;
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
 
@@ -83,9 +85,42 @@ class ApiService {
     return resp.data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> uploadFile(String path, FormData formData) async {
-    final resp = await _dio.post(path, data: formData);
+  /// Upload a file from raw bytes (used by bulk upload screens)
+  Future<Map<String, dynamic>> uploadFile(
+    String path, {
+    FormData? formData,
+    Uint8List? bytes,
+    String? fileName,
+    String fieldName = 'file',
+    Map<String, String>? fields,
+  }) async {
+    final fd = formData ?? FormData.fromMap({
+      ...?fields,
+      fieldName: MultipartFile.fromBytes(bytes!, filename: fileName ?? 'upload.xlsx'),
+    });
+    final resp = await _dio.post(path,
+      data: fd,
+      options: Options(contentType: 'multipart/form-data'),
+    );
     return resp.data as Map<String, dynamic>;
+  }
+
+  /// Trigger a browser file download for the given API endpoint
+  Future<void> downloadFile(String path, String saveAs) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final url = '${AppConstants.apiBaseUrl}$path';
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', saveAs)
+        ..setAttribute('target', '_blank');
+      // Attach auth token via query param as fallback for direct GET downloads
+      final fullUrl = token != null ? '$url?token=$token' : url;
+      anchor.href = fullUrl;
+      html.document.body?.append(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch (_) {}
   }
 
   Future<Map<String, dynamic>> postMultipart(

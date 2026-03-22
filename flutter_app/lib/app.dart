@@ -18,6 +18,7 @@ import 'screens/branch/branch_screen.dart';
 import 'screens/org/org_structure_screen.dart';
 import 'screens/employee/employee_screen.dart';
 import 'screens/employee/employee_form_screen.dart';
+import 'screens/employee/employee_bulk_upload_screen.dart';
 import 'screens/student/student_screen.dart';
 import 'screens/student/student_form_screen.dart';
 import 'screens/id_card/id_card_designer.dart';
@@ -130,7 +131,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(path: '/branches',        builder: (_, __) => const BranchScreen()),
           GoRoute(path: '/org-structure',   builder: (_, __) => const OrgStructureScreen()),
-          GoRoute(path: '/employees',       builder: (_, __) => const EmployeeScreen()),
+          GoRoute(path: '/employees',            builder: (_, __) => const EmployeeScreen()),
+          GoRoute(path: '/employees/bulk-upload', builder: (_, __) => const EmployeeBulkUploadScreen()),
           GoRoute(
             path: '/employees/new',
             builder: (_, s) => EmployeeFormScreen(
@@ -208,16 +210,23 @@ class IdMgmtApp extends ConsumerWidget {
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light.copyWith(
-        colorScheme: theme.primaryColor != null 
-          ? ColorScheme.fromSeed(seedColor: theme.primaryColor!, brightness: Brightness.light)
-          : null,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: theme.primaryColor,
+          brightness: Brightness.light,
+        ),
+        scaffoldBackgroundColor: theme.portalTheme.bodyColor,
+        appBarTheme: AppTheme.light.appBarTheme.copyWith(
+          backgroundColor: theme.portalTheme.headerColor,
+          foregroundColor: theme.portalTheme.menuTextColor,
+        ),
       ),
       darkTheme: AppTheme.dark.copyWith(
-        colorScheme: theme.primaryColor != null 
-          ? ColorScheme.fromSeed(seedColor: theme.primaryColor!, brightness: Brightness.dark)
-          : null,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: theme.primaryColor,
+          brightness: Brightness.dark,
+        ),
       ),
-      themeMode: theme.mode,
+      themeMode: theme.portalTheme.isDark ? ThemeMode.dark : theme.mode,
       routerConfig: router,
       builder: (context, child) => ResponsiveBreakpoints.builder(
         child: child!,

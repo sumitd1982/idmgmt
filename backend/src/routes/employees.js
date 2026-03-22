@@ -213,7 +213,7 @@ router.get('/bulk-template/download', authenticate, async (req, res, next) => {
       'reports_to_emp_id', 'date_of_joining*',
       'address_line1', 'city', 'state', 'country', 'zip_code',
       'assigned_classes', 'subject_specialty',
-      'is_temp', 'effective_start_date', 'effective_end_date',
+      'is_temp',
     ];
 
     const FIRST = ['Aarav','Priya','Rahul','Sunita','Amit','Kavita','Rohit','Neha','Vivaan','Meena'];
@@ -241,7 +241,6 @@ router.get('/bulk-template/download', authenticate, async (req, res, next) => {
         lv >= 5 ? `Class ${(i%12)+1}${['A','B','C'][i%3]}` : '',
         lv >= 4 ? ['Maths','Science','English','Hindi','PE'][i%5] : '',
         lv === 8 ? 'TRUE' : 'FALSE',
-        '2025-04-01', '2026-03-31',
       ]);
     }
     xlsx.utils.book_append_sheet(wb, xlsx.utils.aoa_to_sheet(rows), 'Employees (100 samples)');
@@ -283,7 +282,7 @@ router.post('/validate-bulk', authenticate, upload.single('file'), async (req, r
     const emailRe  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     const results = rows.map((row, idx) => {
-      const errors = []; const warnings = [];
+      const errors = []; const warnings = []; const notes = [];
       const empId    = String(row['employee_id*'] || row['employee_id'] || '').trim();
       const firstName= String(row['first_name*']  || row['first_name']  || '').trim();
       const lastName = String(row['last_name*']   || row['last_name']   || '').trim();
@@ -297,7 +296,7 @@ router.post('/validate-bulk', authenticate, upload.single('file'), async (req, r
 
       if (!empId)                 errors.push(m('ERR_EMP_ID_REQUIRED',  'Employee ID is required'));
       else if (!/^[A-Za-z0-9\-_]+$/.test(empId)) errors.push(m('ERR_EMP_ID_FORMAT','Employee ID must be alphanumeric'));
-      else if (existingIds.has(empId))            errors.push(m('ERR_EMP_ID_DUPLICATE','Employee ID already exists'));
+      else if (existingIds.has(empId))            notes.push('Employee ID already exists — prior record will be marked inactive and replaced with this upload.');
 
       if (!firstName)             errors.push(m('ERR_FIRST_NAME_REQUIRED','First name is required'));
       if (!lastName)              errors.push(m('ERR_LAST_NAME_REQUIRED', 'Last name is required'));
@@ -307,17 +306,22 @@ router.post('/validate-bulk', authenticate, upload.single('file'), async (req, r
       if (!roleLevel || roleLevel < 1 || roleLevel > 10) errors.push(m('ERR_ROLE_LEVEL_INVALID','Role level must be 1–10'));
       if (branchCode && !branchByCode[branchCode]) errors.push(m('ERR_BRANCH_NOT_FOUND','Branch code not found'));
       if (doj && new Date(doj) > new Date()) warnings.push(m('WARN_DOJ_FUTURE','Date of joining is in the future'));
-      if (reportsTo && !existingIds.has(reportsTo)) warnings.push(m('WARN_REPORTS_TO_MISSING','reports_to not found, will be blank'));
+
+      // reports_to_emp_id: blank = top-level (highest position), non-empty but not found = warning
+      if (!reportsTo) {
+        notes.push('reports_to_emp_id is blank — employee will be treated as top-level (highest position, no manager).');
+      } else if (!existingIds.has(reportsTo)) {
+        warnings.push(m('WARN_REPORTS_TO_MISSING','reports_to_emp_id not found — will be left blank'));
+      }
 
       return {
         row: idx + 2, // 1-indexed + header row
         status: errors.length > 0 ? 'failed' : warnings.length > 0 ? 'warning' : 'success',
         errors,
         warnings,
+        notes,
         data: { empId, firstName, lastName, email, phone, gender, roleLevel, doj, branchCode, reportsTo,
                 branchId: branchByCode[branchCode] || null,
-                effectiveStart: row['effective_start_date'] || null,
-                effectiveEnd:   row['effective_end_date']   || null,
                 raw: row },
       };
     });
@@ -344,7 +348,7 @@ router.post('/bulk', authenticate, requireRole('super_admin','school_owner','pri
     const rows = xlsx.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
 
     const effectiveSchoolId = req.employee?.school_id || req.user.school_id;
-    const { effective_start_date, effective_end_date } = req.body;
+    const uploadedBy = req.user.id;
 
     const branches = await query('SELECT id, code FROM branches WHERE school_id = ?', [effectiveSchoolId]);
     const branchByCode = {};
@@ -354,7 +358,12 @@ router.post('/bulk', authenticate, requireRole('super_admin','school_owner','pri
     const roleByLevel = {}; const roleByCode = {};
     orgRoles.forEach(r => { roleByLevel[r.level] = r.id; if (r.code) roleByCode[r.code.toUpperCase()] = r.id; });
 
-    let inserted = 0; let skipped = 0;
+    // Build map of existing employee_id → uuid id for this school (for reports_to_emp_id lookup)
+    const existingEmps = await query('SELECT id, employee_id FROM employees WHERE school_id = ? AND is_active = TRUE', [effectiveSchoolId]);
+    const empIdToUuid = {};
+    existingEmps.forEach(e => { empIdToUuid[e.employee_id] = e.id; });
+
+    let inserted = 0; let skipped = 0; let replaced = 0;
     for (const row of rows) {
       try {
         const empId   = String(row['employee_id*'] || row['employee_id'] || '').trim();
@@ -368,35 +377,48 @@ router.post('/bulk', authenticate, requireRole('super_admin','school_owner','pri
         const lvl     = parseInt(row['org_role_level*'] || row['org_role_level'] || 0);
         const rc      = String(row['org_role_code'] || '').toUpperCase();
         const bc      = String(row['branch_code']  || '').toUpperCase();
+        const reportsToEmpId = String(row['reports_to_emp_id'] || '').trim();
         const isTemp  = String(row['is_temp'] || '').toUpperCase() === 'TRUE';
         const classes = String(row['assigned_classes'] || '').trim();
-        const subject = String(row['subject_specialty'] || '').trim();
         if (!empId || !fn || !ln || !email || !phone) { skipped++; continue; }
 
         const orgRoleId = roleByCode[rc] || roleByLevel[lvl];
         if (!orgRoleId) { skipped++; continue; }
 
         const branchId = branchByCode[bc] || null;
+        // Resolve reports_to_emp_id (employee_id string → UUID); blank = top-level
+        const reportsToUuid = reportsToEmpId ? (empIdToUuid[reportsToEmpId] || null) : null;
 
+        // If employee already exists for this school, mark prior record inactive
+        if (empIdToUuid[empId]) {
+          await query(
+            'UPDATE employees SET is_active = FALSE WHERE school_id = ? AND employee_id = ? AND is_active = TRUE',
+            [effectiveSchoolId, empId]
+          );
+          replaced++;
+        }
+
+        const newId = uuid();
         await query(
-          `INSERT IGNORE INTO employees
+          `INSERT INTO employees
              (id, school_id, branch_id, employee_id, org_role_id,
-              first_name, last_name, email, phone, whatsapp_no,
+              reports_to_emp_id, first_name, last_name, email, phone, whatsapp_no,
               gender, date_of_joining, assigned_classes, is_temp, country,
-              effective_start_date, effective_end_date, is_active)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE)`,
-          [uuid(), effectiveSchoolId, branchId, empId, orgRoleId,
-           fn, ln, email, phone, wapp,
+              is_active, created_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?)`,
+          [newId, effectiveSchoolId, branchId, empId, orgRoleId,
+           reportsToUuid, fn, ln, email, phone, wapp,
            gender, doj || null, JSON.stringify(classes ? classes.split(',').map(c=>c.trim()) : []),
-           isTemp, 'India',
-           effective_start_date || null, effective_end_date || null]
+           isTemp, 'India', uploadedBy]
         );
+        // Update lookup map so subsequent rows can reference this newly inserted employee
+        empIdToUuid[empId] = newId;
         inserted++;
       } catch (_) { skipped++; }
     }
 
     try { fs.unlinkSync(req.file.path); } catch (_) {}
-    res.json({ success: true, data: { inserted, skipped, total: rows.length } });
+    res.json({ success: true, data: { inserted, replaced, skipped, total: rows.length } });
   } catch (err) {
     try { if (req.file) fs.unlinkSync(req.file.path); } catch (_) {}
     next(err);
@@ -487,14 +509,16 @@ router.post('/bulk-upload', authenticate,
           continue;
         }
 
-        // Check duplicate employee_id within school
+        // If employee already exists for this school, mark prior record inactive
         const [dup] = await query(
-          'SELECT id FROM employees WHERE school_id = ? AND employee_id = ?',
+          'SELECT id FROM employees WHERE school_id = ? AND employee_id = ? AND is_active = TRUE',
           [effectiveSchoolId, row.employee_id.toString().trim()]
         );
         if (dup) {
-          errors.push({ row: rowNo, error: `Duplicate employee_id: ${row.employee_id}`, data: row });
-          continue;
+          await query(
+            'UPDATE employees SET is_active = FALSE WHERE school_id = ? AND employee_id = ? AND is_active = TRUE',
+            [effectiveSchoolId, row.employee_id.toString().trim()]
+          );
         }
 
         // Resolve org_role by code
@@ -513,8 +537,8 @@ router.post('/bulk-upload', authenticate,
             `INSERT INTO employees (id, school_id, branch_id, employee_id, org_role_id,
                first_name, last_name, gender, date_of_birth, email, phone, whatsapp_no,
                date_of_joining, address_line1, city, state, country, zip_code,
-               qualification, specialization, bulk_upload_batch)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+               qualification, specialization, bulk_upload_batch, is_active, created_by)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?)`,
             [empId, effectiveSchoolId, branch_id,
              row.employee_id.toString().trim(),
              roleRow.id,
@@ -533,7 +557,8 @@ router.post('/bulk-upload', authenticate,
              row.zip_code || null,
              row.qualification || null,
              row.specialization || null,
-             batchId]
+             batchId,
+             req.user.id]
           );
           success.push(rowNo);
         } catch (insertErr) {

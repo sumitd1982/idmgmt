@@ -194,7 +194,7 @@ class AppShell extends ConsumerWidget {
 
     // High-level layout selection
     switch (settings.layout) {
-      case AppLayout.topnav:
+      case AppLayout.topbar:
         return _TopNavShell(child: child, location: location);
       case AppLayout.compact:
         return _DesktopShell(child: child, location: location, forceCompact: true, ref: ref);

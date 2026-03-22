@@ -20,6 +20,7 @@ router.put('/preferences',
     body('layout').optional().isString(),
     body('primary_color').optional().isHexColor(),
     body('sidebar_style').optional().isString(),
+    body('portal_theme_id').optional().isString(),
   ],
   validate,
   async (req, res, next) => {

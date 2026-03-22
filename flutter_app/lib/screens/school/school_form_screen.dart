@@ -11,6 +11,7 @@ import 'dart:typed_data';
 import '../../config/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import 'branch_setup_screen.dart';
 
 // ── Provider ──────────────────────────────────────────────────
 final _schoolDetailProvider =
@@ -71,6 +72,7 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 4, vsync: this);
+    _tabCtrl.addListener(() => setState(() {}));
 
     // Pre-fill if editing
     if (widget.schoolId != null) {
@@ -148,24 +150,46 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
   }
 
   Future<void> _save() async {
-    // Flutter TabBarView lazily builds tabs — unvisited tabs are not in the
-    // widget tree so their validators never fire.  Check required fields on
-    // all tabs explicitly before calling form.validate().
+    final currentTab = _tabCtrl.index;
+
+    // Tab layout: 0=Basic, 1=Branding, 2=Contact, 3=Address(submit)
+    // Tabs 0-2: validate current tab fields then advance to next tab.
+    if (currentTab < 3) {
+      bool currentTabInvalid = false;
+      if (currentTab == 0 &&
+          (_nameCtrl.text.trim().isEmpty || _codeCtrl.text.trim().isEmpty)) {
+        currentTabInvalid = true;
+      } else if (currentTab == 2 &&
+          (_phoneCtrl.text.trim().isEmpty || _emailCtrl.text.trim().isEmpty)) {
+        // Contact is tab 2; Branding (tab 1) has no required fields
+        currentTabInvalid = true;
+      }
+
+      if (currentTabInvalid) {
+        await Future.delayed(const Duration(milliseconds: 50));
+        _formKey.currentState?.validate();
+        return;
+      }
+
+      _tabCtrl.animateTo(currentTab + 1);
+      return;
+    }
+
+    // On Address tab (index 3): validate all required fields then submit.
     int? errorTab;
     if (_nameCtrl.text.trim().isEmpty || _codeCtrl.text.trim().isEmpty) {
-      errorTab = 0;
+      errorTab = 0; // Basic
     } else if (_phoneCtrl.text.trim().isEmpty || _emailCtrl.text.trim().isEmpty) {
-      errorTab = 1;
+      errorTab = 2; // Contact
     } else if (_addressCtrl.text.trim().isEmpty ||
         _cityCtrl.text.trim().isEmpty ||
         _stateCtrl.text.trim().isEmpty ||
         _pinCtrl.text.trim().isEmpty) {
-      errorTab = 2;
+      errorTab = 3; // Address (current tab)
     }
 
     if (errorTab != null) {
       _tabCtrl.animateTo(errorTab);
-      // Give the tab a frame to build before triggering validators.
       await Future.delayed(const Duration(milliseconds: 100));
       _formKey.currentState?.validate();
       return;
@@ -194,29 +218,59 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
         'zip_code':         _pinCtrl.text.trim(),
         'settings':         {'is_messaging_enabled': _isMessagingEnabled},
       };
+
+      String createdSchoolId = widget.schoolId ?? '';
       if (widget.schoolId != null) {
         await ApiService().put('/schools/${widget.schoolId}', body: body);
       } else {
-        await ApiService().post('/schools', body: body);
+        final resp = await ApiService().post('/schools', body: body);
+        final data = (resp?['data'] as Map<String, dynamic>?) ?? resp ?? {};
+        createdSchoolId = data['id'] as String? ?? data['school_id'] as String? ?? '';
       }
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content:         Text(widget.schoolId != null
-              ? 'School updated successfully'
-              : 'School created successfully'),
-          backgroundColor: AppTheme.statusGreen,
-        ),
-      );
 
-      // Refresh user role & school state immediately
-      await ref.read(authNotifierProvider.notifier).refreshUser();
-      
-      // Invalidate relevant providers to force fresh data on next visit
-      ref.invalidate(_schoolDetailProvider);
-      
       if (!mounted) return;
-      Navigator.of(context).pop();
+
+      // Refresh user role & school state
+      await ref.read(authNotifierProvider.notifier).refreshUser();
+      ref.invalidate(_schoolDetailProvider);
+
+      if (!mounted) return;
+
+      if (widget.schoolId != null) {
+        // Edit mode: snackbar + pop
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('School details updated successfully'),
+            backgroundColor: AppTheme.statusGreen,
+          ),
+        );
+        Navigator.of(context).pop();
+      } else {
+        // Create mode: show onboarding dialog to set up first branch
+        final shouldCreateBranch = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _SchoolCreatedDialog(schoolName: _nameCtrl.text.trim()),
+        );
+        if (!mounted) return;
+        if (shouldCreateBranch == true) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (_) => BranchSetupScreen(
+                schoolId:    createdSchoolId,
+                schoolName:  _nameCtrl.text.trim(),
+                schoolCode:  _codeCtrl.text.trim().toUpperCase(),
+                schoolPhone: _phoneCtrl.text.trim(),
+                schoolEmail: _emailCtrl.text.trim(),
+                schoolAddress: _addressCtrl.text.trim(),
+                schoolCity:  _cityCtrl.text.trim(),
+              ),
+            ),
+          );
+        } else {
+          Navigator.of(context).pop();
+        }
+      }
     } catch (e) {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -236,9 +290,9 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
           controller: _tabCtrl,
           tabs: const [
             Tab(icon: Icon(Icons.info_outline, size: 18),    text: 'Basic Info'),
+            Tab(icon: Icon(Icons.image_outlined, size: 18),  text: 'Branding'),
             Tab(icon: Icon(Icons.contact_phone, size: 18),   text: 'Contact'),
             Tab(icon: Icon(Icons.location_on, size: 18),     text: 'Address'),
-            Tab(icon: Icon(Icons.image_outlined, size: 18),  text: 'Branding'),
           ],
         ),
       ),
@@ -257,6 +311,12 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
               onTypeChanged:  (v) => setState(() => _schoolType = v),
               onMessagingToggle: (v) => setState(() => _isMessagingEnabled = v),
             ),
+            _BrandingTab(
+              logoBytes:   _logoBytes,
+              bannerBytes: _bannerBytes,
+              onPickLogo:  _pickLogo,
+              onPickBanner: _pickBanner,
+            ),
             _ContactTab(
               phoneCtrl:     _phoneCtrl,
               altPhoneCtrl:  _altPhoneCtrl,
@@ -271,19 +331,14 @@ class _SchoolFormScreenState extends ConsumerState<SchoolFormScreen>
               stateCtrl:    _stateCtrl,
               pinCtrl:      _pinCtrl,
             ),
-            _BrandingTab(
-              logoBytes:   _logoBytes,
-              bannerBytes: _bannerBytes,
-              onPickLogo:  _pickLogo,
-              onPickBanner: _pickBanner,
-            ),
           ],
         ),
       ),
       bottomNavigationBar: _BottomBar(
-        onSave:   _save,
-        onCancel: () => Navigator.of(context).pop(),
-        saving:   _saving,
+        onSave:    _save,
+        onCancel:  () => Navigator.of(context).pop(),
+        saving:    _saving,
+        isLastTab: _tabCtrl.index == 3,
       ),
     );
   }
@@ -689,10 +744,12 @@ class _BottomBar extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onCancel;
   final bool saving;
+  final bool isLastTab;
   const _BottomBar({
     required this.onSave,
     required this.onCancel,
     required this.saving,
+    required this.isLastTab,
   });
 
   @override
@@ -721,11 +778,65 @@ class _BottomBar extends StatelessWidget {
                     width: 16, height: 16,
                     child: CircularProgressIndicator(
                         strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.save, size: 16),
-            label: Text(saving ? 'Saving...' : 'Save School'),
+                : Icon(isLastTab ? Icons.save : Icons.arrow_forward, size: 16),
+            label: Text(saving ? 'Saving...' : (isLastTab ? 'Save School' : 'Next')),
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── School Created Dialog ─────────────────────────────────────
+class _SchoolCreatedDialog extends StatelessWidget {
+  final String schoolName;
+  const _SchoolCreatedDialog({required this.schoolName});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      contentPadding: const EdgeInsets.fromLTRB(24, 28, 24, 8),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 64, height: 64,
+            decoration: BoxDecoration(
+              color: AppTheme.statusGreen.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.check_circle_rounded,
+                color: AppTheme.statusGreen, size: 36),
+          ),
+          const SizedBox(height: 16),
+          Text('School Registered!',
+              style: GoogleFonts.poppins(
+                  fontSize: 18, fontWeight: FontWeight.w700,
+                  color: AppTheme.grey900)),
+          const SizedBox(height: 8),
+          Text(
+            '"$schoolName" has been added successfully.\nNow set up your first branch to get started.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(fontSize: 13, color: AppTheme.grey600),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+      actionsAlignment: MainAxisAlignment.center,
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      actions: [
+        OutlinedButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Done'),
+        ),
+        const SizedBox(width: 8),
+        ElevatedButton.icon(
+          onPressed: () => Navigator.of(context).pop(true),
+          icon: const Icon(Icons.account_tree_outlined, size: 16),
+          label: const Text('Create Branch'),
+        ),
+      ],
     );
   }
 }
