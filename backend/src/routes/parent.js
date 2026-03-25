@@ -8,6 +8,14 @@ const crypto  = require('crypto');
 const { query } = require('../models/db');
 const { authenticate } = require('../middleware/auth');
 const logger  = require('../utils/logger');
+const multer  = require('multer');
+const path    = require('path');
+const sharp   = require('sharp');
+const fs      = require('fs');
+
+const UPLOAD_DIR = path.join(__dirname, '../../uploads');
+fs.mkdirSync(path.join(UPLOAD_DIR, 'photos'), { recursive: true });
+const _multerTemp = multer({ dest: path.join(UPLOAD_DIR, 'temp'), limits: { fileSize: 5 * 1024 * 1024 } });
 
 // Shared notification helper (SMS + WhatsApp + Email)
 const notifModule = require('./notifications');
@@ -190,7 +198,7 @@ router.post('/review', async (req, res, next) => {
               e.whatsapp_no AS teacher_wa, e.id AS teacher_emp_id,
               s.first_name AS student_first, s.school_id
        FROM parent_reviews pr
-       JOIN employees e ON e.id = pr.link_sent_by
+       LEFT JOIN employees e ON e.id = pr.link_sent_by
        JOIN students s ON s.id = pr.student_id
        WHERE pr.review_token = ? AND pr.status IN ('link_sent','returned')`,
       [token]
@@ -229,7 +237,9 @@ router.post('/review', async (req, res, next) => {
     }
 
     // Compute diff
-    const original = JSON.parse(review.original_data);
+    const original = typeof review.original_data === 'string'
+      ? JSON.parse(review.original_data)
+      : review.original_data;
     const diff = {};
     const allowedFields = ['first_name','last_name','date_of_birth','address_line1',
                            'address_line2','city','state','zip_code','bus_route','bus_stop','photo_url'];
@@ -382,7 +392,7 @@ router.post('/reviews/:id/approve', authenticate, async (req, res, next) => {
       );
 
       const parentMsg = `Your submission for ${review.student_first} has been returned by the teacher for revision.\n\nReason: ${return_reason}\n\nPlease re-submit after making the necessary corrections.`;
-      await notifyEmployee? notifyEmployee : (() => {});  // no-op safety
+      // (teacher notification on return is handled below via guardian notify)
 
       // Primary guardian notification
       if (review.guardian_phone || review.guardian_email) {
@@ -473,30 +483,406 @@ router.get('/students', authenticate, async (req, res, next) => {
     const userId = req.user.id;
     const phone  = req.user.phone;
 
-    let students = await query(
-      `SELECT s.*, sch.name AS school_name, b.name AS branch_name,
-              g.guardian_type, g.first_name AS guardian_first_name, g.last_name AS guardian_last_name
-       FROM students s
-       JOIN guardians g ON g.student_id = s.id
-       JOIN schools sch ON sch.id = s.school_id
-       JOIN branches b ON b.id = s.branch_id
-       WHERE g.user_id = ?`,
-      [userId]
+    let studentIds = [];
+    const byUserId = await query(
+      `SELECT DISTINCT student_id FROM guardians WHERE user_id = ?`, [userId]
     );
-    if (!students.length && phone) {
+    if (byUserId.length) {
+      studentIds = byUserId.map(r => r.student_id);
+    } else if (phone) {
       const last10 = phone.replace(/\D/g, '').slice(-10);
-      students = await query(
-        `SELECT s.*, sch.name AS school_name, b.name AS branch_name,
-                g.guardian_type, g.first_name AS guardian_first_name, g.last_name AS guardian_last_name
-         FROM students s
-         JOIN guardians g ON g.student_id = s.id
-         JOIN schools sch ON sch.id = s.school_id
-         JOIN branches b ON b.id = s.branch_id
-         WHERE g.phone LIKE ? OR g.phone LIKE ?`,
+      const byPhone = await query(
+        `SELECT DISTINCT student_id FROM guardians WHERE phone LIKE ? OR phone LIKE ?`,
         [`%${last10}`, last10]
       );
+      studentIds = byPhone.map(r => r.student_id);
     }
+
+    if (!studentIds.length) return res.json({ success: true, data: [] });
+
+    const ph = studentIds.map(() => '?').join(',');
+    const students = await query(
+      `SELECT s.id, s.first_name, s.last_name, s.class_name, s.section,
+              s.photo_url, s.student_id, s.admission_no, s.status_color,
+              sch.name AS school_name, b.name AS branch_name,
+              TRIM(CONCAT(IFNULL(ct.first_name,''), ' ', IFNULL(ct.last_name,''))) AS class_teacher_name,
+              (SELECT COUNT(*) FROM students s2
+               WHERE s2.class_name = s.class_name AND s2.section = s.section
+                 AND s2.branch_id = s.branch_id AND s2.is_active = TRUE AND s2.is_current = TRUE) AS total_in_class
+       FROM students s
+       JOIN schools sch ON sch.id = s.school_id
+       JOIN branches b ON b.id = s.branch_id
+       LEFT JOIN class_sections cs ON cs.class_name = s.class_name AND cs.section = s.section
+                                  AND cs.branch_id = s.branch_id AND cs.is_active = TRUE
+       LEFT JOIN employees ct ON ct.id = cs.class_teacher_id AND ct.is_active = TRUE
+       WHERE s.id IN (${ph})
+       ORDER BY s.class_name, s.first_name`,
+      studentIds
+    );
+
+    for (const student of students) {
+      const guardians = await query(
+        `SELECT guardian_type, first_name, last_name, phone
+         FROM guardians WHERE student_id = ? ORDER BY guardian_type`,
+        [student.id]
+      );
+      student.guardians = guardians
+        .map(g => ({
+          type: g.guardian_type,
+          name: `${g.first_name || ''} ${g.last_name || ''}`.trim(),
+          phone: g.phone || '',
+        }))
+        .filter(g => g.name || g.phone);
+
+      // Determine which guardian type this user is
+      const [myG] = await query(
+        `SELECT guardian_type FROM guardians WHERE student_id = ? AND user_id = ? LIMIT 1`,
+        [student.id, userId]
+      ).catch(() => [null]);
+      student.guardian_type = myG?.guardian_type || null;
+
+      student.class_teacher_name = (student.class_teacher_name || '').trim() || null;
+    }
+
     res.json({ success: true, data: students });
+  } catch (err) { next(err); }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /parent/my-reviews — Parent: pending/active reviews
+// ─────────────────────────────────────────────────────────────
+router.get('/my-reviews', authenticate, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'parent' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    const userId  = req.user.id;
+    const phone   = req.user.phone;
+    // ?history=true returns completed (approved/rejected) reviews; default is active only
+    const history = req.query.history === 'true';
+
+    let studentIds = [];
+    const byUserId = await query(
+      `SELECT DISTINCT student_id FROM guardians WHERE user_id = ?`, [userId]
+    );
+    if (byUserId.length) {
+      studentIds = byUserId.map(r => r.student_id);
+    } else if (phone) {
+      const last10 = phone.replace(/\D/g, '').slice(-10);
+      const byPhone = await query(
+        `SELECT DISTINCT student_id FROM guardians WHERE phone LIKE ? OR phone LIKE ?`,
+        [`%${last10}`, last10]
+      );
+      studentIds = byPhone.map(r => r.student_id);
+    }
+
+    if (!studentIds.length) return res.json({ success: true, data: [], history });
+
+    const placeholders = studentIds.map(() => '?').join(',');
+    const statusFilter = history
+      ? `pr.status IN ('approved','rejected')`
+      : `pr.status NOT IN ('approved','rejected')`;
+
+    const reviews = await query(
+      `SELECT pr.id, pr.status, pr.review_token,
+              pr.link_sent_at, pr.link_expires_at,
+              pr.submitted_at, pr.reviewed_at, pr.return_reason, pr.review_notes,
+              pr.document_required, pr.document_instructions,
+              pr.changes_summary,
+              s.id AS student_id, s.first_name, s.last_name, s.student_id AS student_roll,
+              s.class_name, s.section, s.photo_url, s.school_id,
+              sch.name AS school_name,
+              CASE
+                WHEN tch.first_name IS NOT NULL
+                  THEN TRIM(CONCAT(tch.first_name,' ',IFNULL(tch.last_name,'')))
+                ELSE TRIM(CONCAT(e.first_name,' ',IFNULL(e.last_name,'')))
+              END AS teacher_name,
+              (SELECT COUNT(*) FROM review_documents rd WHERE rd.review_id = pr.id) AS doc_count,
+              (SELECT COUNT(*) FROM parent_review_messages pm WHERE pm.review_id = pr.id AND pm.sender_type != 'parent') AS unread_count
+       FROM parent_reviews pr
+       JOIN students s ON s.id = pr.student_id
+       JOIN schools sch ON sch.id = s.school_id
+       LEFT JOIN employees e ON e.id = pr.link_sent_by
+       LEFT JOIN workflow_request_items wri ON wri.parent_review_id = pr.id
+       LEFT JOIN employees tch ON tch.id = wri.assigned_teacher_id AND tch.is_active = TRUE
+       WHERE pr.student_id IN (${placeholders})
+         AND ${statusFilter}
+       ORDER BY pr.link_sent_at DESC`,
+      studentIds
+    );
+
+    const parsed = reviews.map(r => ({
+      ...r,
+      changes_summary: r.changes_summary
+        ? (typeof r.changes_summary === 'string' ? JSON.parse(r.changes_summary) : r.changes_summary)
+        : null,
+    }));
+    res.json({ success: true, data: parsed, history });
+  } catch (err) { next(err); }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /parent/attendance-summary — Per-child attendance %
+// ─────────────────────────────────────────────────────────────
+router.get('/attendance-summary', authenticate, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'parent' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    const userId = req.user.id;
+    const phone  = req.user.phone;
+
+    let studentIds = [];
+    const byUserId = await query(`SELECT DISTINCT student_id FROM guardians WHERE user_id = ?`, [userId]);
+    if (byUserId.length) {
+      studentIds = byUserId.map(r => r.student_id);
+    } else if (phone) {
+      const last10 = phone.replace(/\D/g, '').slice(-10);
+      const byPhone = await query(
+        `SELECT DISTINCT student_id FROM guardians WHERE phone LIKE ? OR phone LIKE ?`,
+        [`%${last10}`, last10]
+      );
+      studentIds = byPhone.map(r => r.student_id);
+    }
+
+    if (!studentIds.length) return res.json({ success: true, data: {} });
+
+    const result = {};
+    for (const sid of studentIds) {
+      const rows = await query(
+        `SELECT am.id AS module_id, am.type, am.name,
+                COUNT(*) AS total_days,
+                SUM(CASE WHEN ar.status='present' THEN 1 ELSE 0 END) AS present_days
+         FROM attendance_records ar
+         JOIN attendance_modules am ON am.id = ar.module_id
+         WHERE ar.student_id = ?
+           AND ar.date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+           AND am.visible_to_parents = TRUE
+         GROUP BY am.id, am.type, am.name`,
+        [sid]
+      );
+
+      const summary = { by_module: [] };
+      let totalAll = 0, presentAll = 0;
+      for (const r of rows) {
+        const pct = r.total_days > 0 ? Math.round((r.present_days / r.total_days) * 100) : null;
+        summary.by_module.push({
+          module_id:    r.module_id,
+          name:         r.name,
+          type:         r.type,
+          total_days:   r.total_days,
+          present_days: r.present_days,
+          percentage:   pct,
+        });
+        totalAll   += r.total_days;
+        presentAll += r.present_days;
+      }
+      summary.overall_percentage = totalAll > 0 ? Math.round((presentAll / totalAll) * 100) : null;
+      result[sid] = summary;
+    }
+
+    res.json({ success: true, data: result });
+  } catch (err) { next(err); }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /parent/reviews/:id/messages — Parent-teacher messages
+// ─────────────────────────────────────────────────────────────
+router.get('/reviews/:id/messages', authenticate, async (req, res, next) => {
+  try {
+    const messages = await query(
+      `SELECT * FROM parent_review_messages WHERE review_id = ? ORDER BY created_at ASC`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: messages });
+  } catch (err) { next(err); }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /parent/reviews/:id/messages — Send message
+// ─────────────────────────────────────────────────────────────
+router.post('/reviews/:id/messages', authenticate, async (req, res, next) => {
+  try {
+    const { message } = req.body;
+    if (!message?.trim()) return res.status(400).json({ success: false, message: 'Message required' });
+
+    const reviewId = req.params.id;
+    const [review] = await query(
+      `SELECT pr.*, s.first_name AS student_first, s.school_id,
+              e.phone AS teacher_phone, e.email AS teacher_email
+       FROM parent_reviews pr
+       JOIN students s ON s.id = pr.student_id
+       LEFT JOIN employees e ON e.id = pr.link_sent_by
+       WHERE pr.id = ?`, [reviewId]
+    );
+    if (!review) return res.status(404).json({ success: false, message: 'Review not found' });
+
+    let senderType, senderId, senderName;
+    if (req.user.role === 'parent') {
+      senderType = 'parent';
+      senderId   = req.user.id;
+      senderName = req.user.full_name || req.user.phone || 'Parent';
+    } else if (req.employee) {
+      senderType = 'teacher';
+      senderId   = req.employee.id;
+      senderName = `${req.employee.first_name || ''} ${req.employee.last_name || ''}`.trim() || 'Teacher';
+    } else {
+      senderType = 'admin';
+      senderId   = req.user.id;
+      senderName = req.user.full_name || 'Admin';
+    }
+
+    const msgId = uuid();
+    await query(
+      `INSERT INTO parent_review_messages (id, review_id, sender_type, sender_id, sender_name, message)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [msgId, reviewId, senderType, senderId, senderName, message.trim()]
+    );
+
+    const [saved] = await query(`SELECT * FROM parent_review_messages WHERE id = ?`, [msgId]);
+
+    if (senderType === 'parent' && review.teacher_phone) {
+      await sendNotification({
+        phone:    review.teacher_phone,
+        email:    review.teacher_email,
+        subject:  `Message from parent re: ${review.student_first}`,
+        message:  `${senderName}: ${message.trim()}`,
+        school_id:      review.school_id,
+        recipient_id:   review.link_sent_by,
+        recipient_type: 'employee',
+      }).catch(() => {});
+    }
+
+    res.status(201).json({ success: true, data: saved });
+  } catch (err) { next(err); }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /parent/fee-reminders — Active fee workflow requests
+// ─────────────────────────────────────────────────────────────
+router.get('/fee-reminders', authenticate, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'parent' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    const userId = req.user.id;
+    const phone  = req.user.phone;
+
+    let studentIds = [];
+    const byUserId = await query(`SELECT DISTINCT student_id FROM guardians WHERE user_id = ?`, [userId]);
+    if (byUserId.length) {
+      studentIds = byUserId.map(r => r.student_id);
+    } else if (phone) {
+      const last10 = phone.replace(/\D/g, '').slice(-10);
+      const byPhone = await query(
+        `SELECT DISTINCT student_id FROM guardians WHERE phone LIKE ? OR phone LIKE ?`,
+        [`%${last10}`, last10]
+      );
+      studentIds = byPhone.map(r => r.student_id);
+    }
+
+    if (!studentIds.length) return res.json({ success: true, data: [] });
+
+    const placeholders = studentIds.map(() => '?').join(',');
+    const reminders = await query(
+      `SELECT wri.id, wri.status, wr.due_date AS deadline, wri.teacher_notes AS notes,
+              wr.title, wr.description, wr.created_at AS request_created_at,
+              s.first_name, s.last_name, s.class_name, s.section,
+              sch.name AS school_name
+       FROM workflow_request_items wri
+       JOIN workflow_requests wr ON wr.id = wri.request_id
+       JOIN students s ON s.id = wri.student_id
+       JOIN schools sch ON sch.id = s.school_id
+       WHERE wri.student_id IN (${placeholders})
+         AND LOWER(wr.title) LIKE '%fee%'
+         AND wri.status NOT IN ('approved','rejected')
+       ORDER BY wr.due_date ASC`,
+      studentIds
+    );
+    res.json({ success: true, data: reminders });
+  } catch (err) { next(err); }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  POST /parent/review/photo — public photo upload (token-gated)
+//  Parent uploads student photo during review; token validates access
+// ─────────────────────────────────────────────────────────────
+router.post('/review/photo', _multerTemp.single('photo'), async (req, res, next) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ success: false, message: 'Token required' });
+
+    const [review] = await query(
+      `SELECT pr.id, pr.student_id FROM parent_reviews pr
+       WHERE pr.review_token = ? AND pr.status IN ('link_sent','returned')
+         AND pr.link_expires_at > NOW()`, [token]
+    );
+    if (!review) return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    if (!req.file)  return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    const filename = `student_${review.student_id}_${uuid()}.webp`;
+    const outPath  = path.join(UPLOAD_DIR, 'photos', filename);
+    await sharp(req.file.path).resize(400, 400, { fit: 'cover' }).webp({ quality: 85 }).toFile(outPath);
+    fs.unlinkSync(req.file.path);
+
+    const url = `/idmgmt/api/static/photos/${filename}`;
+    res.json({ success: true, data: { url } });
+  } catch (err) {
+    if (req.file) fs.unlink(req.file.path, () => {});
+    next(err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  GET /parent/workflow-requests — Active/historical workflow items
+// ─────────────────────────────────────────────────────────────
+router.get('/workflow-requests', authenticate, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'parent' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    const userId = req.user.id;
+    const phone  = req.user.phone;
+    const history = req.query.history === 'true';
+
+    let studentIds = [];
+    const byUserId = await query(`SELECT DISTINCT student_id FROM guardians WHERE user_id = ?`, [userId]);
+    if (byUserId.length) {
+      studentIds = byUserId.map(r => r.student_id);
+    } else if (phone) {
+      const last10 = phone.replace(/\D/g, '').slice(-10);
+      const byPhone = await query(
+        `SELECT DISTINCT student_id FROM guardians WHERE phone LIKE ? OR phone LIKE ?`,
+        [`%${last10}`, last10]
+      );
+      studentIds = byPhone.map(r => r.student_id);
+    }
+
+    if (!studentIds.length) return res.json({ success: true, data: [] });
+
+    const ph = studentIds.map(() => '?').join(',');
+    const statusFilter = history
+      ? `wri.status IN ('approved','rejected')`
+      : `wri.status NOT IN ('approved','rejected')`;
+
+    const requests = await query(
+      `SELECT wri.id, wri.status, wri.student_id, wri.parent_review_id,
+              wri.teacher_notes, wri.updated_at,
+              wr.id AS request_id, wr.title, wr.description, wr.due_date,
+              wr.created_at AS request_date,
+              s.first_name, s.last_name, s.class_name, s.section,
+              TRIM(CONCAT(IFNULL(e.first_name,''), ' ', IFNULL(e.last_name,''))) AS assigned_teacher
+       FROM workflow_request_items wri
+       JOIN workflow_requests wr ON wr.id = wri.request_id
+       JOIN students s ON s.id = wri.student_id
+       LEFT JOIN employees e ON e.id = wri.assigned_teacher_id AND e.is_active = TRUE
+       WHERE wri.student_id IN (${ph})
+         AND ${statusFilter}
+       ORDER BY wr.created_at DESC`,
+      studentIds
+    );
+
+    res.json({ success: true, data: requests });
   } catch (err) { next(err); }
 });
 

@@ -13,6 +13,8 @@ import 'package:responsive_framework/responsive_framework.dart';
 import '../../config/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import '../../models/user_model.dart';
+import 'dashboard_overview.dart';
 
 // ── Data Models ───────────────────────────────────────────────
 class _DashboardStats {
@@ -118,6 +120,72 @@ final _classChartProvider = FutureProvider<List<_ClassChartData>>((ref) async {
   return _mockChartData;
 });
 
+// ── Workflow Summary Models ────────────────────────────────────
+class _WfSummaryRequest {
+  final String id;
+  final String title;
+  final String requestType;
+  final String status;
+  final int totalItems;
+  final int pendingItems;
+  final int completedItems;
+  const _WfSummaryRequest({
+    required this.id, required this.title, required this.requestType,
+    required this.status, required this.totalItems,
+    required this.pendingItems, required this.completedItems,
+  });
+  factory _WfSummaryRequest.fromJson(Map<String, dynamic> j) => _WfSummaryRequest(
+    id:            j['id'] as String,
+    title:         j['title'] as String? ?? '',
+    requestType:   j['request_type'] as String? ?? 'student_info',
+    status:        j['status'] as String? ?? 'draft',
+    totalItems:    (j['total_items'] as num?)?.toInt() ?? 0,
+    pendingItems:  (j['pending_items'] as num?)?.toInt() ?? 0,
+    completedItems:(j['completed_items'] as num?)?.toInt() ?? 0,
+  );
+  double get pct => totalItems == 0 ? 0 : completedItems / totalItems;
+}
+
+class _WfClassStat {
+  final String className;
+  final String section;
+  final Map<String, dynamic>? classTeacher;
+  final int total, pending, sentToParent, parentSubmitted, approved, rejected;
+  const _WfClassStat({
+    required this.className, required this.section, this.classTeacher,
+    required this.total, required this.pending, required this.sentToParent,
+    required this.parentSubmitted, required this.approved, required this.rejected,
+  });
+  factory _WfClassStat.fromJson(Map<String, dynamic> j) {
+    final s = (j['stats'] as Map<String, dynamic>?) ?? {};
+    return _WfClassStat(
+      className:       j['class_name'] as String? ?? '',
+      section:         j['section']    as String? ?? '',
+      classTeacher:    j['class_teacher'] as Map<String, dynamic>?,
+      total:           (s['total']           as num?)?.toInt() ?? 0,
+      pending:         (s['pending']         as num?)?.toInt() ?? 0,
+      sentToParent:    (s['sent_to_parent']  as num?)?.toInt() ?? 0,
+      parentSubmitted: (s['parent_submitted'] as num?)?.toInt() ?? 0,
+      approved:        (s['approved']        as num?)?.toInt() ?? 0,
+      rejected:        (s['rejected']        as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+final _activeWorkflowRequestsProvider = FutureProvider<List<_WfSummaryRequest>>((ref) async {
+  try {
+    final data = await ApiService().get('/workflow/requests', params: {'status': 'active'});
+    final list = data['data'] as List<dynamic>? ?? [];
+    // Also include in_progress requests
+    final data2 = await ApiService().get('/workflow/requests', params: {'status': 'in_progress'});
+    final list2 = data2['data'] as List<dynamic>? ?? [];
+    final combined = [...list, ...list2];
+    return combined.map((e) => _WfSummaryRequest.fromJson(e as Map<String, dynamic>)).toList();
+  } catch (_) {
+    return [];
+  }
+});
+
 const _mockChartData = [
   _ClassChartData('Cls 1', 48, 12, 8),
   _ClassChartData('Cls 2', 55, 18, 10),
@@ -130,14 +198,58 @@ const _mockChartData = [
 ];
 
 // ── Screen ────────────────────────────────────────────────────
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  bool _profileDialogShown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowProfileDialog());
+  }
+
+  void _maybeShowProfileDialog() {
+    if (_profileDialogShown) return;
+    final user = ref.read(authNotifierProvider).valueOrNull;
+    if (user != null && (user.email == null || user.email!.isEmpty) && mounted) {
+      _profileDialogShown = true;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ProfileCompletionDialog(
+          onSaved: () => ref.read(authNotifierProvider.notifier).refreshUser(),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
     final user      = authState.valueOrNull;
     final isWide    = ResponsiveBreakpoints.of(context).largerThan(TABLET);
+
+    // Show profile dialog if user's name was just loaded and is still empty
+    if (!_profileDialogShown && user != null && (user.email == null || user.email!.isEmpty)) {
+      _profileDialogShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => _ProfileCompletionDialog(
+              onSaved: () => ref.read(authNotifierProvider.notifier).refreshUser(),
+            ),
+          );
+        }
+      });
+    }
 
     return Scaffold(
       backgroundColor: AppTheme.grey50,
@@ -145,6 +257,9 @@ class DashboardScreen extends ConsumerWidget {
         onRefresh: () async {
           ref.invalidate(_dashboardStatsProvider);
           ref.invalidate(_recentRequestsProvider);
+          ref.invalidate(_classChartProvider);
+          ref.invalidate(_activeWorkflowRequestsProvider);
+          invalidateDashboardOverview(ref);
         },
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -159,9 +274,11 @@ class DashboardScreen extends ConsumerWidget {
               _StatsRow(),
               const SizedBox(height: 24),
 
-              // Onboarding Guide (if no schools found)
-              _OnboardingGuide(),
-              const SizedBox(height: 24),
+              // Onboarding Guide (if no schools found) — hidden for parents
+              if (user?.role != 'parent') ...[
+                _OnboardingGuide(),
+                const SizedBox(height: 24),
+              ],
 
               // Main content
               isWide
@@ -172,11 +289,15 @@ class DashboardScreen extends ConsumerWidget {
                           flex: 3,
                           child: Column(
                             children: [
-                              _QuickActions(),
-                              const SizedBox(height: 20),
+                              if (user?.role != 'parent') ...[
+                                _QuickActions(),
+                                const SizedBox(height: 20),
+                              ],
                               _RecentRequestsTable(),
                               const SizedBox(height: 20),
                               _ClassChartCard(),
+                              const SizedBox(height: 20),
+                              DashboardOverviewComponent(),
                             ],
                           ),
                         ),
@@ -189,11 +310,15 @@ class DashboardScreen extends ConsumerWidget {
                     )
                   : Column(
                       children: [
-                        _QuickActions(),
-                        const SizedBox(height: 20),
+                        if (user?.role != 'parent') ...[
+                          _QuickActions(),
+                          const SizedBox(height: 20),
+                        ],
                         _RecentRequestsTable(),
                         const SizedBox(height: 20),
                         _ClassChartCard(),
+                        const SizedBox(height: 20),
+                        DashboardOverviewComponent(),
                         const SizedBox(height: 20),
                         _NotificationFeed(),
                       ],
@@ -218,14 +343,14 @@ class _WelcomeHeader extends StatelessWidget {
     return 'Good evening';
   }
 
-  // Show "Phone user +phone" for new phone users whose name is still blank in db
   String _displayName() {
-    if (user == null) return 'Admin';
-    final name = (user.fullName as String?) ?? '';
-    if (name.isEmpty && user.phone != null) {
-      return 'Phone user ${user.phone}';
+    if (user == null) return 'there';
+    final name = user.fullName;
+    if (name.isNotEmpty) return name;
+    if (user.email != null && user.email!.isNotEmpty) {
+      return user.email!.split('@').first;
     }
-    return user.displayName as String? ?? 'Admin';
+    return 'there';
   }
 
   @override
@@ -681,6 +806,293 @@ class _RecentRequestsTable extends ConsumerWidget {
   }
 }
 
+// ── Workflow Dashboard Card ────────────────────────────────────
+class _WorkflowDashboardCard extends ConsumerWidget {
+  const _WorkflowDashboardCard();
+
+  bool _shouldShow(AppUser? user) {
+    if (user == null) return false;
+    return user.isAdmin || user.isPrincipal ||
+        ['vice_principal', 'head_teacher', 'school_owner'].contains(user.role) ||
+        (user.employee?.roleLevel ?? 0) >= 3;
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authNotifierProvider).valueOrNull;
+    if (!_shouldShow(user)) return const SizedBox.shrink();
+
+    final requestsAsync = ref.watch(_activeWorkflowRequestsProvider);
+
+    return requestsAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error:   (_, __) => const SizedBox.shrink(),
+      data: (requests) {
+        if (requests.isEmpty) return const SizedBox.shrink();
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.assignment_turned_in_outlined, color: AppTheme.primary, size: 18),
+                    const SizedBox(width: 8),
+                    Text('Active Workflow Requests',
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 15)),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => context.go('/workflow'),
+                      child: const Text('View All'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ...requests.map((req) => _WfRequestRow(request: req)),
+              ],
+            ),
+          ),
+        ).animate().fadeIn(delay: 450.ms, duration: 400.ms);
+      },
+    );
+  }
+}
+
+class _WfRequestRow extends StatefulWidget {
+  final _WfSummaryRequest request;
+  const _WfRequestRow({required this.request});
+
+  @override
+  State<_WfRequestRow> createState() => _WfRequestRowState();
+}
+
+class _WfRequestRowState extends State<_WfRequestRow> {
+  bool _expanded = false;
+  List<_WfClassStat> _classStats = [];
+  bool _loading = false;
+
+  Future<void> _loadClassStats() async {
+    if (_classStats.isNotEmpty) return;
+    setState(() => _loading = true);
+    try {
+      final data = await ApiService().get('/workflow/requests/${widget.request.id}/overview');
+      final list = data['data'] as List<dynamic>? ?? [];
+      setState(() {
+        _classStats = list.map((e) => _WfClassStat.fromJson(e as Map<String, dynamic>)).toList();
+        _loading = false;
+      });
+    } catch (_) {
+      setState(() => _loading = false);
+    }
+  }
+
+  Color get _statusColor {
+    switch (widget.request.status) {
+      case 'completed':   return AppTheme.statusGreen;
+      case 'in_progress': return AppTheme.statusBlue;
+      case 'active':      return AppTheme.accent;
+      case 'on_hold':     return AppTheme.warning;
+      default:            return AppTheme.grey400;
+    }
+  }
+
+  String get _statusLabel {
+    switch (widget.request.status) {
+      case 'completed':   return 'Completed';
+      case 'in_progress': return 'In Progress';
+      case 'active':      return 'Active';
+      case 'on_hold':     return 'On Hold';
+      default:            return 'Draft';
+    }
+  }
+
+  IconData get _typeIcon {
+    switch (widget.request.requestType) {
+      case 'teacher_info': return Icons.badge_outlined;
+      case 'document':     return Icons.folder_open_outlined;
+      default:             return Icons.school_outlined;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final req = widget.request;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.grey200),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          // ── Request header row ──
+          InkWell(
+            onTap: () {
+              setState(() => _expanded = !_expanded);
+              if (_expanded) _loadClassStats();
+            },
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(_typeIcon, size: 14, color: AppTheme.primary),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(req.title,
+                            style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _statusColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: _statusColor.withOpacity(0.3)),
+                        ),
+                        child: Text(_statusLabel,
+                            style: GoogleFonts.poppins(fontSize: 10, color: _statusColor, fontWeight: FontWeight.w600)),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(_expanded ? Icons.expand_less : Icons.expand_more,
+                          size: 16, color: AppTheme.grey500),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      _DashWfPill('${req.totalItems} total',     AppTheme.grey500),
+                      const SizedBox(width: 4),
+                      _DashWfPill('${req.completedItems} done',  AppTheme.statusGreen),
+                      const SizedBox(width: 4),
+                      if (req.pendingItems > 0)
+                        _DashWfPill('${req.pendingItems} pending', AppTheme.warning),
+                      const Spacer(),
+                      if (req.totalItems > 0)
+                        SizedBox(
+                          width: 80,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: req.pct,
+                              backgroundColor: AppTheme.grey100,
+                              color: req.pct == 1.0 ? AppTheme.statusGreen : AppTheme.primary,
+                              minHeight: 5,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(width: 4),
+                      Text('${(req.pct * 100).round()}%',
+                          style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.grey600)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Expanded class-section table ──
+          if (_expanded)
+            Container(
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppTheme.grey200)),
+              ),
+              child: _loading
+                  ? const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    )
+                  : _classStats.isEmpty
+                      ? Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Text('No class assignments found.',
+                              style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500)),
+                        )
+                      : Column(
+                          children: [
+                            // Table header
+                            Container(
+                              color: AppTheme.grey50,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              child: Row(
+                                children: [
+                                  SizedBox(width: 90,  child: Text('Class/Sec', style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.grey600))),
+                                  Expanded(           child: Text('Teacher',   style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.grey600))),
+                                  SizedBox(width: 42,  child: Text('Total',    style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.grey600), textAlign: TextAlign.center)),
+                                  SizedBox(width: 52,  child: Text('Verified', style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.statusGreen), textAlign: TextAlign.center)),
+                                  SizedBox(width: 56,  child: Text('Responded',style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.statusBlue), textAlign: TextAlign.center)),
+                                  SizedBox(width: 52,  child: Text('Pending',  style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.warning), textAlign: TextAlign.center)),
+                                ],
+                              ),
+                            ),
+                            ..._classStats.map((cs) {
+                              final teacherName = (cs.classTeacher?['name'] as String?) ?? '—';
+                              final responded   = cs.parentSubmitted + cs.sentToParent;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                                decoration: const BoxDecoration(
+                                  border: Border(top: BorderSide(color: AppTheme.grey100)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 90,
+                                      child: Text('${cs.className}–${cs.section}',
+                                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.primary)),
+                                    ),
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.person_outline, size: 11, color: AppTheme.grey400),
+                                          const SizedBox(width: 3),
+                                          Expanded(
+                                            child: Text(teacherName,
+                                                style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey700),
+                                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    SizedBox(width: 42, child: Text('${cs.total}',    style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600), textAlign: TextAlign.center)),
+                                    SizedBox(width: 52, child: Text('${cs.approved}', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.statusGreen), textAlign: TextAlign.center)),
+                                    SizedBox(width: 56, child: Text('$responded',     style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.statusBlue), textAlign: TextAlign.center)),
+                                    SizedBox(width: 52, child: Text('${cs.pending}',  style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: cs.pending > 0 ? AppTheme.warning : AppTheme.grey400), textAlign: TextAlign.center)),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashWfPill extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _DashWfPill(this.label, this.color);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(label, style: GoogleFonts.poppins(fontSize: 10, color: color, fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 class _StatusBadge extends StatelessWidget {
   final String status;
   const _StatusBadge({required this.status});
@@ -1026,7 +1438,7 @@ class _OnboardingStep extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
+                      isDone ? '$title ✅' : title,
                       style: GoogleFonts.poppins(
                           fontWeight: FontWeight.w600,
                           fontSize: 14,
@@ -1044,6 +1456,158 @@ class _OnboardingStep extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── Profile Completion Dialog ──────────────────────────────────
+class _ProfileCompletionDialog extends ConsumerStatefulWidget {
+  final VoidCallback onSaved;
+  const _ProfileCompletionDialog({required this.onSaved});
+
+  @override
+  ConsumerState<_ProfileCompletionDialog> createState() =>
+      _ProfileCompletionDialogState();
+}
+
+class _ProfileCompletionDialogState
+    extends ConsumerState<_ProfileCompletionDialog> {
+  final _emailCtrl = TextEditingController();
+  bool _saving     = false;
+
+  @override
+  void dispose() { _emailCtrl.dispose(); super.dispose(); }
+
+  Future<void> _save() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) { Navigator.of(context).pop(); widget.onSaved(); return; }
+    setState(() => _saving = true);
+    try {
+      await ref.read(authNotifierProvider.notifier).updateEmail(email);
+      widget.onSaved();
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e'), backgroundColor: AppTheme.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user  = ref.watch(authNotifierProvider).valueOrNull;
+    final name  = user?.fullName ?? '';
+    final first = name.isNotEmpty ? name.split(' ').first : 'there';
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Welcome, $first! 🎉',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18)),
+          const SizedBox(height: 4),
+          Text(
+            'Your profile is managed by school records.',
+            style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey600, fontWeight: FontWeight.w400),
+          ),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            // Name — read-only
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.grey100,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.grey200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.lock_outline, size: 14, color: AppTheme.grey400),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      name.isNotEmpty ? name : 'Name from school records',
+                      style: GoogleFonts.poppins(fontSize: 14, color: AppTheme.grey700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text('Name is managed by your school.',
+                style: GoogleFonts.poppins(fontSize: 10, color: AppTheme.grey400)),
+            const SizedBox(height: 16),
+            // Email — editable
+            TextField(
+              controller: _emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              style: GoogleFonts.poppins(fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'Gmail / Email (optional)',
+                labelStyle: GoogleFonts.poppins(fontSize: 13),
+                hintText: 'you@gmail.com',
+                hintStyle: GoogleFonts.poppins(fontSize: 13, color: AppTheme.grey400),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                prefixIcon: const Icon(Icons.email_outlined, size: 18),
+                helperText: 'Add Gmail for an alternative way to sign in',
+                helperStyle: GoogleFonts.poppins(fontSize: 10, color: AppTheme.grey500),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () { Navigator.of(context).pop(); widget.onSaved(); },
+          child: Text('Skip for now',
+              style: GoogleFonts.poppins(color: AppTheme.grey500)),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
+          child: _saving
+              ? const SizedBox(width: 18, height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : Text('Save', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+        ),
+      ],
+    );
+  }
+}
+
+class _Field extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final bool required;
+  const _Field({required this.controller, required this.label, required this.required});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      textCapitalization: TextCapitalization.words,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: GoogleFonts.poppins(fontSize: 13),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        isDense: true,
+      ),
+      style: GoogleFonts.poppins(fontSize: 13),
+      validator: required
+          ? (v) => (v == null || v.trim().isEmpty) ? 'Required' : null
+          : null,
     );
   }
 }

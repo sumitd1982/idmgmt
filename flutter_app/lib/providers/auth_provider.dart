@@ -109,6 +109,30 @@ class AuthNotifier extends StateNotifier<AsyncValue<AppUser?>> {
     }
   }
 
+  Future<void> updateProfile({
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    String? email,
+  }) async {
+    final user = await _service.updateProfile(
+      firstName:  firstName,
+      middleName: middleName,
+      lastName:   lastName,
+      email:      email,
+    );
+    state = AsyncValue.data(user);
+  }
+
+  Future<void> updateEmail(String email) async {
+    final user = await _service.updateProfile(
+      firstName: '',
+      lastName:  '',
+      email:     email,
+    );
+    state = AsyncValue.data(user);
+  }
+
   Future<void> signOut() async {
     await _service.signOut();
     state = const AsyncValue.data(null);

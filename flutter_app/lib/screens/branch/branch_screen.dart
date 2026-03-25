@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:typed_data';
 import '../../config/theme.dart';
@@ -360,6 +361,19 @@ class _BranchCard extends StatelessWidget {
                     label: 'Staff',
                     color: AppTheme.secondary),
                 const Spacer(),
+                OutlinedButton.icon(
+                  onPressed: () => context.push(
+                    '/branches/class-sections?branchId=${branch.id}&branchName=${Uri.encodeComponent(branch.name)}',
+                  ),
+                  icon:  const Icon(Icons.class_outlined, size: 14),
+                  label: const Text('Classes'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    textStyle: GoogleFonts.poppins(fontSize: 12),
+                    minimumSize: Size.zero,
+                  ),
+                ),
+                const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: onEdit,
                   icon:  const Icon(Icons.edit_outlined, size: 14),

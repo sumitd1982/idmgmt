@@ -66,11 +66,13 @@ const authenticate = async (req, res, next) => {
   ensureFirebase();
   const authHeader = req.headers.authorization;
 
-  if (!authHeader?.startsWith('Bearer ')) {
+  // Allow token via query param for file downloads (e.g. ?token=xxx)
+  const queryToken = req.query?.token;
+  if (!authHeader?.startsWith('Bearer ') && !queryToken) {
     return res.status(401).json({ success: false, message: 'No auth token provided' });
   }
 
-  const token = authHeader.slice(7);
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken;
 
   try {
     // ── Try own JWT first (MSG91 phone login) ──────────────────

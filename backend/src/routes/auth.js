@@ -89,8 +89,11 @@ router.post('/otp/verify', async (req, res, next) => {
     const isSuperAdmin = isSuperAdminPhone(phone);
     const last10 = mobile.slice(-10);
 
-    // Find or create user by phone
-    let [user] = await query('SELECT * FROM users WHERE phone = ? LIMIT 1', [phone]);
+    // Find or create user by phone — match exact OR last-10 digits (handles +91 prefix variants)
+    let [user] = await query(
+      'SELECT * FROM users WHERE phone = ? OR phone LIKE ? OR phone = ? LIMIT 1',
+      [phone, `%${last10}`, last10]
+    );
     let newUser = false;
 
     if (!user) {
@@ -100,7 +103,7 @@ router.post('/otp/verify', async (req, res, next) => {
       logger.info(`[LOGIN] New user creation — phone: ${mobile}, role: ${role}`);
       await query(
         `INSERT INTO users (id, phone, full_name, display_name, role) VALUES (?, ?, ?, ?, ?)`,
-        [id, phone, '', '', role]
+        [id, last10, '', '', role]
       );
       [user] = await query('SELECT * FROM users WHERE id = ?', [id]);
     }
@@ -111,19 +114,36 @@ router.post('/otp/verify', async (req, res, next) => {
       await query('UPDATE users SET role = ? WHERE id = ?', ['super_admin', user.id]);
       user.role = 'super_admin';
     } else if (user.role === 'viewer') {
-      // Check if employee
+      // Check if employee (active records only — SCD Type-2 may have old inactive duplicates)
       const [emp] = await query(
-        `SELECT e.id, r.code as role_code FROM employees e 
+        `SELECT e.id, e.first_name, e.last_name, r.code as role_code, r.level as role_level FROM employees e
          JOIN org_roles r ON r.id = e.org_role_id
-         WHERE e.phone LIKE ? OR e.phone LIKE ? LIMIT 1`,
+         WHERE (e.phone LIKE ? OR e.phone LIKE ?) AND e.is_active = TRUE LIMIT 1`,
         [`%${last10}`, last10]
       );
 
       if (emp) {
-        logger.info(`[LOGIN] Employee found mirroring phone — linking userId: ${user.id} to empId: ${emp.id}`);
+        const fullName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
+        // Map org_role to a valid users.role ENUM value.
+        // org_roles.code is free-form; use level as the authoritative mapping.
+        const LEVEL_TO_ROLE = {
+          1: 'principal', 2: 'vp', 3: 'head_teacher',
+          4: 'senior_teacher', 5: 'class_teacher', 6: 'class_teacher',
+          7: 'backup_teacher', 8: 'temp_teacher',
+        };
+        const VALID_USER_ROLES = new Set(['super_admin','school_owner','school_admin',
+          'branch_admin','principal','vp','head_teacher','senior_teacher',
+          'class_teacher','backup_teacher','temp_teacher','parent','viewer','onboarding']);
+        const mappedRole = VALID_USER_ROLES.has(emp.role_code)
+          ? emp.role_code
+          : (LEVEL_TO_ROLE[emp.role_level] || 'viewer');
+        logger.info(`[LOGIN] Employee found mirroring phone — linking userId: ${user.id} to empId: ${emp.id}, mapped role: ${mappedRole} (code: ${emp.role_code}, level: ${emp.role_level})`);
         await query('UPDATE employees SET user_id = ? WHERE id = ?', [user.id, emp.id]);
-        await query('UPDATE users SET role = ? WHERE id = ?', [emp.role_code, user.id]);
-        user.role = emp.role_code;
+        await query(
+          'UPDATE users SET role = ?, full_name = CASE WHEN full_name = \'\' THEN ? ELSE full_name END, display_name = CASE WHEN display_name = \'\' THEN ? ELSE display_name END WHERE id = ?',
+          [mappedRole, fullName, fullName, user.id]
+        );
+        user.role = mappedRole;
       } else {
         // Check if guardian (parent)
         const [guardian] = await query(
@@ -217,6 +237,38 @@ router.get('/setup-status', authenticate, async (req, res, next) => {
       return res.json({ success: true, data: { needsOnboarding: true } });
     }
     return res.json({ success: true, data: { needsOnboarding: false } });
+  } catch (err) { next(err); }
+});
+
+// PUT /auth/profile — update user's name and/or email
+router.put('/profile', authenticate, async (req, res, next) => {
+  try {
+    const { first_name, middle_name, last_name, email } = req.body;
+
+    const nameParts = [first_name, middle_name, last_name].filter(p => p && p.trim());
+    const full_name = nameParts.join(' ').trim();
+
+    const setClauses = [];
+    const params     = [];
+
+    if (full_name) {
+      setClauses.push('full_name = ?', 'display_name = ?');
+      params.push(full_name, full_name);
+    }
+    if (email && email.trim()) {
+      setClauses.push('email = ?');
+      params.push(email.trim().toLowerCase());
+    }
+
+    if (setClauses.length === 0) {
+      return res.status(400).json({ success: false, message: 'No fields to update' });
+    }
+
+    params.push(req.user.id);
+    await query(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`, params);
+
+    const [updated] = await query('SELECT * FROM users WHERE id = ?', [req.user.id]);
+    res.json({ success: true, data: updated });
   } catch (err) { next(err); }
 });
 

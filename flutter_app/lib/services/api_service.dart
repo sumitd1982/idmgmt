@@ -105,22 +105,24 @@ class ApiService {
     return resp.data as Map<String, dynamic>;
   }
 
-  /// Trigger a browser file download for the given API endpoint
+  /// Download a file from the given API endpoint and trigger a browser save dialog.
+  /// Throws on HTTP errors so callers can surface a message to the user.
   Future<void> downloadFile(String path, String saveAs) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      final url = '${AppConstants.apiBaseUrl}$path';
-      final anchor = html.AnchorElement(href: url)
-        ..setAttribute('download', saveAs)
-        ..setAttribute('target', '_blank');
-      // Attach auth token via query param as fallback for direct GET downloads
-      final fullUrl = token != null ? '$url?token=$token' : url;
-      anchor.href = fullUrl;
-      html.document.body?.append(anchor);
-      anchor.click();
-      anchor.remove();
-    } catch (_) {}
+    // Use Dio so auth headers are added automatically (via the interceptor)
+    // and errors surface as DioExceptions instead of failing silently.
+    final resp = await _dio.get<List<int>>(
+      path,
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final bytes = resp.data ?? [];
+    final blob = html.Blob([bytes]);
+    final url  = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', saveAs);
+    html.document.body?.append(anchor);
+    anchor.click();
+    anchor.remove();
+    html.Url.revokeObjectUrl(url);
   }
 
   Future<Map<String, dynamic>> postMultipart(

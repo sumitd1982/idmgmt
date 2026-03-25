@@ -139,7 +139,6 @@ class OrgStructureScreen extends ConsumerWidget {
     final selected       = ref.watch(_selectedNodeProvider);
 
     return Scaffold(
-      backgroundColor: AppTheme.grey50,
       body: Column(
         children: [
           // Toolbar
@@ -154,14 +153,20 @@ class OrgStructureScreen extends ConsumerWidget {
             child: treeAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error:   (e, _) => Center(child: Text('Error: $e')),
-              data:    (nodes) => Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Tree
-                  Expanded(
-                    flex: selected != null ? 3 : 1,
-                    child: _OrgTreeView(nodes: nodes),
-                  ),
+              data:    (nodes) {
+                final filtered = branchFilter != null
+                    ? _filterTreeByBranch(nodes, branchFilter!)
+                    : nodes;
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Tree
+                    Expanded(
+                      flex: selected != null ? 3 : 1,
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('No employees in this branch'))
+                          : _OrgTreeView(nodes: filtered),
+                    ),
                   // Details panel
                   if (selected != null) ...[
                     const VerticalDivider(width: 1),
@@ -173,8 +178,9 @@ class OrgStructureScreen extends ConsumerWidget {
                       ),
                     ),
                   ],
-                ],
-              ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -188,6 +194,23 @@ class OrgStructureScreen extends ConsumerWidget {
       ).animate().scale(delay: 300.ms),
     );
   }
+}
+
+// Recursively keep nodes (and their subtrees) that belong to the given branch
+List<OrgNode> _filterTreeByBranch(List<OrgNode> nodes, String branchId) {
+  final result = <OrgNode>[];
+  for (final node in nodes) {
+    final filteredChildren = _filterTreeByBranch(node.children, branchId);
+    if (node.branchId == branchId || filteredChildren.isNotEmpty) {
+      result.add(OrgNode(
+        id: node.id, name: node.name, roleName: node.roleName,
+        roleLevel: node.roleLevel, photoUrl: node.photoUrl,
+        branchName: node.branchName, branchId: node.branchId,
+        managerId: node.managerId, children: filteredChildren,
+      ));
+    }
+  }
+  return result;
 }
 
 // ── Toolbar ───────────────────────────────────────────────────

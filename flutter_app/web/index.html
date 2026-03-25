@@ -155,6 +155,18 @@
 
   {{flutter_service_worker_version}}
 
+  <!-- Force service worker update on every deploy -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (var r of registrations) { r.update(); }
+      });
+      navigator.serviceWorker.addEventListener('controllerchange', function() {
+        window.location.reload();
+      });
+    }
+  </script>
+
   <!-- Flutter Bootstrap -->
   <script src="flutter_bootstrap.js" async></script>
 

@@ -134,12 +134,12 @@ class _GuardianData {
   });
 
   factory _GuardianData.fromJson(Map<String, dynamic> j) => _GuardianData(
-        type:       j['type']       as String? ?? '',
-        name:       j['name']       as String? ?? '',
+        type:       j['guardian_type'] as String? ?? j['type'] as String? ?? '',
+        name:       (j['first_name']  as String? ?? j['name'] as String? ?? '').trim(),
         phone:      j['phone']      as String? ?? '',
-        whatsapp:   j['whatsapp']   as String? ?? '',
-        email:      j['email']      as String? ?? '',
-        occupation: j['occupation'] as String? ?? '',
+        whatsapp:   j['whatsapp_no'] as String? ?? j['whatsapp'] as String? ?? '',
+        email:      j['email']       as String? ?? '',
+        occupation: j['occupation']  as String? ?? '',
       );
 }
 
@@ -305,8 +305,21 @@ class _ReviewFormState extends State<_ReviewForm>
 
     setState(() => _submitting = true);
     try {
-      // In production, upload files to Firebase Storage first,
-      // then pass the URLs. Here we pass file metadata (URL stubbed).
+      // Upload student photo if picked
+      String? uploadedPhotoUrl;
+      if (_studentPhoto != null) {
+        try {
+          final uploadResp = await ApiService().uploadFile(
+            '/parent/review/photo',
+            bytes: _studentPhoto!,
+            fileName: 'student_photo.jpg',
+            fieldName: 'photo',
+            fields: {'token': widget.data.token},
+          );
+          uploadedPhotoUrl = uploadResp['data']?['url'] as String?;
+        } catch (_) { /* photo upload failed — proceed without */ }
+      }
+
       final docPayload = _uploadedDocs.map((d) => {
         'file_name':    d.name,
         'file_url':     d.uploadedUrl ?? 'pending_upload',
@@ -322,6 +335,7 @@ class _ReviewFormState extends State<_ReviewForm>
           'zip_code':      _pinCtrl.text.trim(),
           'bus_route':     _busRouteCtrl.text.trim(),
           'bus_stop':      _busStopCtrl.text.trim(),
+          if (uploadedPhotoUrl != null) 'photo_url': uploadedPhotoUrl,
         },
         'guardians_data': _guardians.map((g) => {
           'guardian_type': g.type,
@@ -333,10 +347,13 @@ class _ReviewFormState extends State<_ReviewForm>
         }).toList(),
         'documents': docPayload,
       });
-    } catch (_) {
-      // Treat as success in demo mode
-    } finally {
       if (mounted) setState(() { _submitting = false; _submitted = true; });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _submitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Submission failed: $e'), backgroundColor: Colors.red));
+      }
     }
   }
 

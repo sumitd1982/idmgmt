@@ -1,258 +1,652 @@
 // ============================================================
-// Employee Screen — List + Form + Hierarchy View
+// Employee Screen — Advanced List with Sort, Filter, Export
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
-import '../../models/employee_model.dart';
 import 'package:data_table_2/data_table_2.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:image_picker/image_picker.dart';
 import 'dart:typed_data';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
+import '../../models/employee_model.dart';
 import '../../services/api_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/school_provider.dart';
+import '../../widgets/common/advanced_filter.dart';
+import '../../widgets/common/data_exporter.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
 // ── Providers ─────────────────────────────────────────────────
+final _showInactiveProvider = StateProvider<bool>((_) => true);
+final _showHiddenProvider   = StateProvider<bool>((_) => false);
+final _employeesProvider    = FutureProvider.family<List<EmployeeRecord>, ({bool inactive, bool hidden})>(
+  (ref, opts) async {
+    try {
+      final data = await ApiService().get('/employees', params: {
+        if (opts.inactive) 'include_inactive': 'true',
+        if (opts.hidden)   'include_hidden':   'true',
+      });
+      return (data['data'] as List<dynamic>? ?? [])
+          .map((e) => EmployeeRecord.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) { return EmployeeRecord.mockList(); }
+  },
+);
 
-// ── Providers ─────────────────────────────────────────────────
-final _selectedEmployeeProvider  = StateProvider<EmployeeRecord?>((ref) => null);
-final _employeeFilterProvider    = StateProvider<int?>((_) => null); // level filter
-final _showInactiveProvider      = StateProvider<bool>((_) => false);
-final _showHiddenProvider        = StateProvider<bool>((_) => false);
+// ── Sort Config ───────────────────────────────────────────────
+class _SortConfig {
+  final String column;
+  final bool ascending;
+  _SortConfig(this.column, this.ascending);
 
-// Employees provider with inactive/hidden support
-final _employeesProvider = FutureProvider.family<List<EmployeeRecord>, ({bool inactive, bool hidden})>((ref, opts) async {
-  try {
-    final data = await ApiService().get('/employees', params: {
-      if (opts.inactive) 'include_inactive': 'true',
-      if (opts.hidden)   'include_hidden': 'true',
-    });
-    final list = data['data'] as List<dynamic>? ?? [];
-    return list
-        .map((e) => EmployeeRecord.fromJson(e as Map<String, dynamic>))
-        .toList();
-  } catch (_) {
-    return EmployeeRecord.mockList();
+  _SortConfig toggle() => _SortConfig(column, !ascending);
+  _SortConfig copyWith({String? column, bool? ascending}) =>
+      _SortConfig(column ?? this.column, ascending ?? this.ascending);
+}
+
+// Available columns (key, label)
+const _allColumns = [
+  ('name',        'Employee Name'),
+  ('employeeId',  'Employee ID'),
+  ('role',        'Role / Level'),
+  ('branch',      'Branch'),
+  ('phone',       'Phone'),
+  ('email',       'Email'),
+  ('manager',     'Manager'),
+  ('permissions', 'Permissions'),
+  ('status',      'Status'),
+];
+
+const _defaultVisible = ['name', 'employeeId', 'role', 'branch', 'permissions', 'status'];
+
+// ── Filter fields for employees ────────────────────────────────
+List<FilterField> _buildFilterFields() => [
+  const FilterField(key: 'firstName',   label: 'First Name',  type: FilterFieldType.text,   icon: Icons.person_outline),
+  const FilterField(key: 'lastName',    label: 'Last Name',   type: FilterFieldType.text,   icon: Icons.person_outline),
+  const FilterField(key: 'email',       label: 'Email',       type: FilterFieldType.text,   icon: Icons.email_outlined),
+  const FilterField(key: 'phone',       label: 'Phone',       type: FilterFieldType.text,   icon: Icons.phone_outlined),
+  const FilterField(key: 'employeeId',  label: 'Employee ID', type: FilterFieldType.text,   icon: Icons.badge_outlined),
+  const FilterField(key: 'roleName',    label: 'Role',        type: FilterFieldType.text,   icon: Icons.work_outline),
+  FilterField(key: 'roleLevel', label: 'Level', type: FilterFieldType.select, icon: Icons.layers_outlined,
+    options: AppConstants.orgLevels.entries.map((e) => FilterOption(e.key.toString(), 'L${e.key}: ${e.value}')).toList()),
+  const FilterField(key: 'branchName',  label: 'Branch',      type: FilterFieldType.text,   icon: Icons.account_tree_outlined),
+  const FilterField(key: 'managerName', label: 'Manager',     type: FilterFieldType.text,   icon: Icons.supervisor_account_outlined),
+  FilterField(key: 'isActive', label: 'Status', type: FilterFieldType.select, icon: Icons.toggle_on_outlined,
+    options: const [FilterOption('true', 'Active'), FilterOption('false', 'Inactive')]),
+  FilterField(key: 'canApprove', label: 'Can Approve', type: FilterFieldType.boolean, icon: Icons.approval_outlined),
+];
+
+String _empValue(EmployeeRecord e, String key) {
+  switch (key) {
+    case 'firstName':   return e.firstName;
+    case 'lastName':    return e.lastName;
+    case 'email':       return e.email;
+    case 'phone':       return e.phone ?? '';
+    case 'employeeId':  return e.employeeId;
+    case 'roleName':    return e.roleName;
+    case 'roleLevel':   return e.roleLevel.toString();
+    case 'branchName':  return e.branchName ?? '';
+    case 'managerName': return e.managerName ?? '';
+    case 'isActive':    return e.isActive.toString();
+    case 'canApprove':  return e.canApprove.toString();
+    default:            return '';
   }
-});
-
-// Fetch org roles for the assignment form
-final _orgRolesDropdownProvider = FutureProvider.family<List<Map<String, dynamic>>, String?>((ref, schoolId) async {
-  try {
-    final user = ref.read(authNotifierProvider).value;
-    final sid = schoolId ?? user?.employee?.schoolId;
-    if (sid == null) return [];
-    final res = await ApiService().get('/org/roles/$sid');
-    return List<Map<String, dynamic>>.from(res['data'] ?? []);
-  } catch (_) { return []; }
-});
+}
 
 // ── Screen ────────────────────────────────────────────────────
-class EmployeeScreen extends ConsumerWidget {
+class EmployeeScreen extends ConsumerStatefulWidget {
   const EmployeeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final showInactive = ref.watch(_showInactiveProvider);
-    final showHidden   = ref.watch(_showHiddenProvider);
-    final employeesAsy = ref.watch(_employeesProvider((inactive: showInactive, hidden: showHidden)));
-    final selected     = ref.watch(_selectedEmployeeProvider);
-    final levelFilter  = ref.watch(_employeeFilterProvider);
+  ConsumerState<EmployeeScreen> createState() => _EmployeeScreenState();
+}
 
-    return Scaffold(
-      backgroundColor: AppTheme.grey50,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showEmployeeForm(context, ref, null),
-        icon:  const Icon(Icons.person_add),
-        label: const Text('Add Employee'),
-      ).animate().scale(delay: 300.ms),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Toolbar
-            _EmployeeToolbar(levelFilter: levelFilter),
-            const SizedBox(height: 12),
-            // Table
-            Expanded(
-              child: employeesAsy.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error:   (e, _) => Center(child: Text('Error: $e')),
-                data:    (employees) {
-                  final filtered = levelFilter != null
-                      ? employees.where((e) => e.roleLevel == levelFilter).toList()
-                      : employees;
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: selected != null ? 1 : 1, // Let table share space
-                        child: Card(
-                          margin: EdgeInsets.zero,
-                          child: _EmployeeTable(
-                            employees: filtered,
-                            onSelect: (e) => ref
-                                .read(_selectedEmployeeProvider.notifier)
-                                .state = e,
-                          ),
-                        ),
-                      ),
-                      if (selected != null) ...[
-                        const SizedBox(width: 14),
-                        SizedBox(
-                          width: 300,
-                          child: _EmployeeDetailPanel(
-                            employee: selected,
-                            onClose:  () => ref
-                                .read(_selectedEmployeeProvider.notifier)
-                                .state = null,
-                            onEdit: () => _showEmployeeForm(
-                                context, ref, selected),
-                          ),
-                        ),
-                      ],
-                    ],
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+class _EmployeeScreenState extends ConsumerState<EmployeeScreen> {
+  // Selection
+  final Set<String> _selectedIds = {};
+
+  // Branch filter
+  String? _selectedBranchId;
+
+  // Search
+  final _searchCtrl = TextEditingController();
+  String _searchText = '';
+
+  // Filter
+  List<FilterRule> _filterRules = [];
+  FilterLogic _filterLogic = FilterLogic.and;
+
+  // Sort
+  List<_SortConfig> _sorts = [_SortConfig('roleLevel', true)];
+
+  // Columns
+  List<String> _visibleColumns = List.from(_defaultVisible);
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<EmployeeRecord> _applyLocalFilters(List<EmployeeRecord> all) {
+    var list = all;
+
+    // Branch filter
+    if (_selectedBranchId != null) {
+      list = list.where((e) => e.branchId == _selectedBranchId).toList();
+    }
+
+    // Search
+    if (_searchText.isNotEmpty) {
+      final q = _searchText.toLowerCase();
+      list = list.where((e) =>
+        e.fullName.toLowerCase().contains(q) ||
+        e.email.toLowerCase().contains(q) ||
+        e.employeeId.toLowerCase().contains(q) ||
+        (e.phone?.toLowerCase().contains(q) ?? false)
+      ).toList();
+    }
+
+    // Filter rules
+    list = list.where((e) => applyFilters(e, _filterRules, _filterLogic, _empValue)).toList();
+
+    // Sort
+    list.sort((a, b) {
+      for (final s in _sorts) {
+        int cmp = 0;
+        switch (s.column) {
+          case 'name':       cmp = a.fullName.compareTo(b.fullName); break;
+          case 'employeeId': cmp = a.employeeId.compareTo(b.employeeId); break;
+          case 'roleLevel':  cmp = a.roleLevel.compareTo(b.roleLevel); break;
+          case 'branch':     cmp = (a.branchName ?? '').compareTo(b.branchName ?? ''); break;
+          case 'status':     cmp = a.isActive == b.isActive ? 0 : (a.isActive ? -1 : 1); break;
+          default:           cmp = 0;
+        }
+        if (cmp != 0) return s.ascending ? cmp : -cmp;
+      }
+      return 0;
+    });
+
+    return list;
+  }
+
+  void _toggleSort(String column) {
+    setState(() {
+      final idx = _sorts.indexWhere((s) => s.column == column);
+      if (idx >= 0) {
+        final existing = _sorts[idx];
+        if (!existing.ascending) {
+          _sorts.removeAt(idx);
+        } else {
+          _sorts[idx] = existing.toggle();
+        }
+      } else {
+        _sorts = [_SortConfig(column, true), ..._sorts.take(2)];
+      }
+    });
+  }
+
+  void _openSortDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => _SortDialog(
+        sorts: _sorts,
+        onChanged: (s) => setState(() => _sorts = s),
       ),
     );
   }
 
-  void _showEmployeeForm(
-      BuildContext context, WidgetRef ref, EmployeeRecord? employee) {
-    if (employee == null) {
-      context.push('/employees/new');
-    } else {
-      context.push('/employees/${employee.id}');
+  void _openColumnDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => _ColumnChooserDialog(
+        visible: _visibleColumns,
+        onChanged: (cols) => setState(() => _visibleColumns = cols),
+      ),
+    );
+  }
+
+  Future<void> _openExportDialog(List<EmployeeRecord> allData, List<EmployeeRecord> filtered) async {
+    final cols = _allColumns.map((c) =>
+      ExportColumnDef(key: c.$1, label: c.$2, defaultSelected: _visibleColumns.contains(c.$1))
+    ).toList();
+
+    final req = await showExportDialog(
+      context: context,
+      columns: cols,
+      totalCount: allData.length,
+      filteredCount: filtered.length,
+      selectedCount: _selectedIds.length,
+      title: 'Export Employees',
+    );
+    if (req == null || !mounted) return;
+
+    final params = <String>[];
+    if (req.scope == ExportScope.selected) params.add('ids=${_selectedIds.join(',')}');
+    final ext = req.format == ExportFormat.xlsx ? 'xlsx' : 'csv';
+    final filename = 'employees_export.$ext';
+    try {
+      await ApiService().downloadFile(
+        '/employees/export?${params.join('&')}',
+        filename,
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export failed: $e'), backgroundColor: AppTheme.error));
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showInactive = ref.watch(_showInactiveProvider);
+    final showHidden   = ref.watch(_showHiddenProvider);
+    final employeesAsy = ref.watch(_employeesProvider((inactive: showInactive, hidden: showHidden)));
+    final currentUser  = ref.watch(authNotifierProvider).valueOrNull;
+    final role         = currentUser?.role ?? '';
+    final hasEmployee  = currentUser?.employee != null || currentUser?.isSuperAdmin == true || currentUser?.isSchoolOwner == true;
+    final canEdit      = role == 'super_admin' || role == 'school_owner' || role == 'principal' || role == 'vp' || role == 'head_teacher';
+
+    return Scaffold(
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: canEdit
+          ? FloatingActionButton.extended(
+              onPressed: () async {
+                final result = await context.push('/employees/new');
+                if (result == true) ref.invalidate(_employeesProvider);
+              },
+              icon: const Icon(Icons.person_add),
+              label: const Text('Add Employee'),
+            ).animate().scale(delay: 300.ms)
+          : null,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Warning Banner ──────────────────────────────────
+          if (!hasEmployee && currentUser != null)
+            _NoProfileBanner(onAdd: () async {
+              final result = await context.push('/employees/new');
+              if (result == true) ref.invalidate(_employeesProvider);
+            }),
+
+          // ── Toolbar ─────────────────────────────────────────
+          _Toolbar(
+            searchCtrl: _searchCtrl,
+            onSearch: (v) => setState(() => _searchText = v),
+            filterRules: _filterRules,
+            filterLogic: _filterLogic,
+            sorts: _sorts,
+            visibleColumns: _visibleColumns,
+            showInactive: showInactive,
+            showHidden: showHidden,
+            selectedBranchId: _selectedBranchId,
+            onBranchChanged: (v) => setState(() => _selectedBranchId = v),
+            onFilterChanged: (rules) => setState(() => _filterRules = rules),
+            onFilterLogicChanged: (l) => setState(() => _filterLogic = l),
+            onSortTap: _openSortDialog,
+            onColumnsTap: _openColumnDialog,
+            onExportTap: () => employeesAsy.whenData((all) {
+              final filtered = _applyLocalFilters(all);
+              _openExportDialog(all, filtered);
+            }),
+            onToggleInactive: (v) => ref.read(_showInactiveProvider.notifier).state = v,
+            onToggleHidden: (v) => ref.read(_showHiddenProvider.notifier).state = v,
+          ),
+
+          // ── Table ────────────────────────────────────────────
+          Expanded(
+            child: employeesAsy.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error:   (e, _) => Center(child: Text('Error: $e')),
+              data:    (allEmployees) {
+                final filtered = _applyLocalFilters(allEmployees);
+                return Column(
+                  children: [
+                    // Stats bar
+                    _StatsBar(
+                      total: allEmployees.length,
+                      filtered: filtered.length,
+                      selected: _selectedIds.length,
+                      activeFilters: _filterRules.where((r) => r.enabled).length,
+                    ),
+                    Expanded(
+                      child: _EmployeeTable(
+                        employees: filtered,
+                        allEmployees: allEmployees,
+                        selectedIds: _selectedIds,
+                        visibleColumns: _visibleColumns,
+                        sorts: _sorts,
+                        canEdit: canEdit,
+                        onSelectionChanged: (ids) => setState(() {
+                          _selectedIds.clear();
+                          _selectedIds.addAll(ids);
+                        }),
+                        onSortColumn: _toggleSort,
+                        onEdit: (e) async {
+                          final result = await context.push('/employees/${e.id}');
+                          if (result == true) ref.invalidate(_employeesProvider);
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Stats Bar ─────────────────────────────────────────────────
+class _StatsBar extends StatelessWidget {
+  final int total, filtered, selected, activeFilters;
+  const _StatsBar({required this.total, required this.filtered, required this.selected, required this.activeFilters});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      color: AppTheme.grey50,
+      child: Row(children: [
+        _Stat('Total', total, AppTheme.primary),
+        const SizedBox(width: 16),
+        _Stat('Showing', filtered, AppTheme.secondary),
+        if (selected > 0) ...[
+          const SizedBox(width: 16),
+          _Stat('Selected', selected, AppTheme.accent),
+        ],
+        if (activeFilters > 0) ...[
+          const SizedBox(width: 16),
+          _Stat('Filters', activeFilters, AppTheme.warning),
+        ],
+      ]),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+  const _Stat(this.label, this.count, this.color);
+
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+    const SizedBox(width: 4),
+    Text('$label: ', style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey500)),
+    Text('$count', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.grey800)),
+  ]);
+}
+
+// ── No Profile Banner ─────────────────────────────────────────
+class _NoProfileBanner extends StatelessWidget {
+  final VoidCallback onAdd;
+  const _NoProfileBanner({required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: const Color(0xFFFFF3E0),
+      child: Row(children: [
+        const Icon(Icons.warning_amber_rounded, color: Color(0xFFE65100), size: 18),
+        const SizedBox(width: 10),
+        Expanded(child: Text(
+          'Your account is not linked to an employee profile. Add yourself to create workflow requests.',
+          style: GoogleFonts.poppins(fontSize: 12, color: const Color(0xFF5D4037)),
+        )),
+        const SizedBox(width: 8),
+        TextButton(
+          onPressed: onAdd,
+          style: TextButton.styleFrom(foregroundColor: const Color(0xFFE65100), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
+          child: Text('Add My Profile', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
+        ),
+      ]),
+    );
   }
 }
 
 // ── Toolbar ───────────────────────────────────────────────────
-class _EmployeeToolbar extends ConsumerWidget {
-  final int? levelFilter;
-  const _EmployeeToolbar({this.levelFilter});
+class _Toolbar extends ConsumerWidget {
+  final TextEditingController searchCtrl;
+  final ValueChanged<String> onSearch;
+  final List<FilterRule> filterRules;
+  final FilterLogic filterLogic;
+  final List<_SortConfig> sorts;
+  final List<String> visibleColumns;
+  final bool showInactive, showHidden;
+  final String? selectedBranchId;
+  final ValueChanged<String?> onBranchChanged;
+  final ValueChanged<List<FilterRule>> onFilterChanged;
+  final ValueChanged<FilterLogic> onFilterLogicChanged;
+  final VoidCallback onSortTap, onColumnsTap, onExportTap;
+  final ValueChanged<bool> onToggleInactive, onToggleHidden;
+
+  const _Toolbar({
+    required this.searchCtrl, required this.onSearch,
+    required this.filterRules, required this.filterLogic,
+    required this.sorts, required this.visibleColumns,
+    required this.showInactive, required this.showHidden,
+    required this.selectedBranchId, required this.onBranchChanged,
+    required this.onFilterChanged, required this.onFilterLogicChanged,
+    required this.onSortTap, required this.onColumnsTap, required this.onExportTap,
+    required this.onToggleInactive, required this.onToggleHidden,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final showInactive = ref.watch(_showInactiveProvider);
-    final showHidden   = ref.watch(_showHiddenProvider);
+    final activeFilters = filterRules.where((r) => r.enabled).length;
+    final activeSorts   = sorts.length;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Wrap(
-          spacing: 12,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            // Level filter chips
-            ...AppConstants.orgLevels.entries.map((e) {
-              final isActive = levelFilter == e.key;
-              return FilterChip(
-                label: Text('L${e.key} ${e.value}',
-                    style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        color: isActive ? Colors.white : AppTheme.grey800,
-                        fontWeight: isActive
-                            ? FontWeight.w600
-                            : FontWeight.w400)),
-                selected:      isActive,
-                selectedColor: AppTheme.primary,
-                showCheckmark: false,
-                side:          BorderSide(
-                    color: isActive
-                        ? AppTheme.primary
-                        : AppTheme.grey300),
-                onSelected: (_) {
-                  ref.read(_employeeFilterProvider.notifier).state =
-                      isActive ? null : e.key;
-                },
-              );
-            }),
+    final currentUser = ref.watch(authNotifierProvider).valueOrNull;
+    final schoolId    = currentUser?.schoolId ?? currentUser?.employee?.schoolId;
+    final branches    = ref.watch(branchesProvider(schoolId)).valueOrNull ?? [];
 
-            const VerticalDivider(width: 20, indent: 4, endIndent: 4),
-
-            // Show inactive toggle
-            FilterChip(
-              label: Text('Show Inactive',
-                  style: GoogleFonts.poppins(
-                      fontSize: 11,
-                      color: showInactive ? Colors.white : AppTheme.grey800,
-                      fontWeight: showInactive ? FontWeight.w600 : FontWeight.w400)),
-              selected:      showInactive,
-              selectedColor: AppTheme.error,
-              showCheckmark: false,
-              avatar: Icon(Icons.person_off_outlined,
-                  size: 14,
-                  color: showInactive ? Colors.white : AppTheme.grey600),
-              side: BorderSide(color: showInactive ? AppTheme.error : AppTheme.grey300),
-              onSelected: (_) =>
-                  ref.read(_showInactiveProvider.notifier).state = !showInactive,
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: AppTheme.grey200)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          // Branch dropdown
+          SizedBox(
+            width: 160,
+            height: 36,
+            child: DropdownButtonFormField<String>(
+              value: selectedBranchId,
+              isDense: true,
+              hint: Text('All Branches', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500)),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.primary)),
+                filled: true, fillColor: AppTheme.grey50,
+              ),
+              items: [
+                DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('All Branches', style: GoogleFonts.poppins(fontSize: 12)),
+                ),
+                ...branches.map((b) => DropdownMenuItem<String>(
+                  value: b['id'] as String?,
+                  child: Text(
+                    b['name'] as String? ?? '',
+                    style: GoogleFonts.poppins(fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                )),
+              ],
+              onChanged: onBranchChanged,
             ),
-
-            // Show hidden toggle
-            FilterChip(
-              label: Text('Show Hidden',
-                  style: GoogleFonts.poppins(
-                      fontSize: 11,
-                      color: showHidden ? Colors.white : AppTheme.grey800,
-                      fontWeight: showHidden ? FontWeight.w600 : FontWeight.w400)),
-              selected:      showHidden,
-              selectedColor: AppTheme.grey600,
-              showCheckmark: false,
-              avatar: Icon(Icons.visibility_off_outlined,
-                  size: 14,
-                  color: showHidden ? Colors.white : AppTheme.grey600),
-              side: BorderSide(color: showHidden ? AppTheme.grey600 : AppTheme.grey300),
-              onSelected: (_) =>
-                  ref.read(_showHiddenProvider.notifier).state = !showHidden,
-            ),
-
-            const VerticalDivider(width: 20, indent: 4, endIndent: 4),
-
-            // Bulk upload
-            OutlinedButton.icon(
-              onPressed: () => _showBulkUpload(context),
-              icon:  const Icon(Icons.upload_file, size: 15),
-              label: const Text('Bulk Upload'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 8),
-                textStyle: GoogleFonts.poppins(fontSize: 12),
-                minimumSize: Size.zero,
+          ),
+          const SizedBox(width: 8),
+          // Search
+          Expanded(
+            child: SizedBox(
+              height: 36,
+              child: TextField(
+                controller: searchCtrl,
+                onChanged: onSearch,
+                style: GoogleFonts.poppins(fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'Search name, email, ID...',
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: searchCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.close, size: 16),
+                          onPressed: () { searchCtrl.clear(); onSearch(''); },
+                        )
+                      : null,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.primary)),
+                  filled: true, fillColor: AppTheme.grey50,
+                ),
               ),
             ),
+          ),
+          const SizedBox(width: 8),
+          // Filter button
+          AdvancedFilter(
+            compact: true,
+            fields: _buildFilterFields(),
+            rules: filterRules,
+            logic: filterLogic,
+            onRulesChanged: onFilterChanged,
+            onLogicChanged: onFilterLogicChanged,
+          ),
+          const SizedBox(width: 6),
+          // Sort button
+          _ToolBtn(
+            icon: Icons.sort_rounded,
+            label: 'Sort',
+            badge: activeSorts > 0 ? activeSorts : null,
+            onTap: onSortTap,
+            active: activeSorts > 0,
+          ),
+          const SizedBox(width: 6),
+          // Columns button
+          _ToolBtn(icon: Icons.view_column_rounded, label: 'Columns', onTap: onColumnsTap),
+          const SizedBox(width: 6),
+          // Export button
+          _ToolBtn(icon: Icons.download_rounded, label: 'Export', onTap: onExportTap, color: const Color(0xFF2E7D32)),
+          const SizedBox(width: 6),
+          // Bulk upload
+          _ToolBtn(
+            icon: Icons.upload_file_rounded,
+            label: 'Bulk Upload',
+            onTap: () => context.push('/employees/bulk-upload'),
+          ),
+        ]),
+        // Toggles row
+        const SizedBox(height: 6),
+        Row(children: [
+          _Toggle('Show Inactive', showInactive, onToggleInactive),
+          const SizedBox(width: 12),
+          _Toggle('Show Hidden', showHidden, onToggleHidden),
+          if (activeFilters > 0) ...[
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: AppTheme.primary.withOpacity(0.08), borderRadius: BorderRadius.circular(6)),
+              child: Text('$activeFilters active filter${activeFilters > 1 ? 's' : ''}',
+                style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.w500)),
+            ),
           ],
-        ),
-      ),
-    );
-  }
-
-  void _showBulkUpload(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => const _BulkUploadDialog(),
+        ]),
+      ]),
     );
   }
 }
 
-// ── Employee Table ────────────────────────────────────────────
+class _ToolBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final int? badge;
+  final bool active;
+  final Color? color;
+  const _ToolBtn({required this.icon, required this.label, required this.onTap, this.badge, this.active = false, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? (active ? AppTheme.primary : AppTheme.grey700);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? c.withOpacity(0.08) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: active ? c : AppTheme.grey300),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 15, color: c),
+          const SizedBox(width: 4),
+          Text(label, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: c)),
+          if (badge != null) ...[
+            const SizedBox(width: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(8)),
+              child: Text('$badge', style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+}
+
+class _Toggle extends StatelessWidget {
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _Toggle(this.label, this.value, this.onChanged);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Transform.scale(scale: 0.75, child: Switch(value: value, onChanged: onChanged, activeColor: AppTheme.primary)),
+      Text(label, style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey600)),
+    ]);
+  }
+}
+
+// ── Employee Table ─────────────────────────────────────────────
 class _EmployeeTable extends StatelessWidget {
   final List<EmployeeRecord> employees;
-  final ValueChanged<EmployeeRecord> onSelect;
-  const _EmployeeTable({required this.employees, required this.onSelect});
+  final List<EmployeeRecord> allEmployees;
+  final Set<String> selectedIds;
+  final List<String> visibleColumns;
+  final List<_SortConfig> sorts;
+  final bool canEdit;
+  final ValueChanged<Set<String>> onSelectionChanged;
+  final ValueChanged<String> onSortColumn;
+  final ValueChanged<EmployeeRecord> onEdit;
+
+  const _EmployeeTable({
+    required this.employees,
+    required this.allEmployees,
+    required this.selectedIds,
+    required this.visibleColumns,
+    required this.sorts,
+    required this.canEdit,
+    required this.onSelectionChanged,
+    required this.onSortColumn,
+    required this.onEdit,
+  });
 
   Color _levelColor(int level) {
     switch (level) {
@@ -266,130 +660,425 @@ class _EmployeeTable extends StatelessWidget {
     }
   }
 
+  DataColumn2 _sortableCol(String key, String label, {double? fixedWidth, ColumnSize size = ColumnSize.S}) {
+    final sortIdx = sorts.indexWhere((s) => s.column == key);
+    final isSorted = sortIdx >= 0;
+    final asc = isSorted && sorts[sortIdx].ascending;
+    return DataColumn2(
+      fixedWidth: fixedWidth,
+      size: size,
+      onSort: (_, __) => onSortColumn(key),
+      label: Row(mainAxisSize: MainAxisSize.min, children: [
+        Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600))),
+        if (isSorted) ...[
+          const SizedBox(width: 2),
+          Icon(asc ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded, size: 12, color: AppTheme.primary),
+          if (sorts.length > 1)
+            Text('${sortIdx + 1}', style: GoogleFonts.poppins(fontSize: 9, color: AppTheme.primary, fontWeight: FontWeight.w700)),
+        ],
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Build columns based on visibleColumns order
+    final cols = <DataColumn2>[
+      // Always: Name
+      _sortableCol('name', 'Employee', size: ColumnSize.L),
+    ];
+    for (final colKey in visibleColumns) {
+      if (colKey == 'name') continue;
+      switch (colKey) {
+        case 'employeeId':  cols.add(_sortableCol('employeeId',  'Emp ID',       fixedWidth: 90)); break;
+        case 'role':        cols.add(_sortableCol('roleLevel',   'Role / Level', fixedWidth: 160)); break;
+        case 'branch':      cols.add(_sortableCol('branch',      'Branch',       fixedWidth: 120)); break;
+        case 'phone':       cols.add(const DataColumn2(label: Text('Phone'), fixedWidth: 120)); break;
+        case 'email':       cols.add(const DataColumn2(label: Text('Email'), size: ColumnSize.M)); break;
+        case 'manager':     cols.add(const DataColumn2(label: Text('Manager'), fixedWidth: 120)); break;
+        case 'permissions': cols.add(const DataColumn2(label: Text('Perms'), fixedWidth: 80)); break;
+        case 'status':      cols.add(_sortableCol('status', 'Status', fixedWidth: 80)); break;
+      }
+    }
+    // Always last: Actions
+    cols.add(const DataColumn2(label: Text(''), fixedWidth: 80));
+
     return DataTable2(
-      columnSpacing:   12,
+      columnSpacing: 10,
       horizontalMargin: 16,
-      minWidth:        700,
+      minWidth: 600,
+      showCheckboxColumn: true,
       headingRowColor: WidgetStateProperty.all(AppTheme.grey100),
-      columns: [
-        const DataColumn2(label: Text('Employee'), size: ColumnSize.L),
-        const DataColumn2(label: Text('ID'),       fixedWidth: 90),
-        const DataColumn2(label: Text('Level'),    fixedWidth: 180),
-        const DataColumn2(label: Text('Branch'),   fixedWidth: 130),
-        const DataColumn2(label: Text('Permissions'), fixedWidth: 120),
-        const DataColumn2(label: Text('Status'),   fixedWidth: 80),
-        const DataColumn2(label: Text('Actions'),  fixedWidth: 80),
-      ],
+      headingCheckboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? AppTheme.primary : null),
+      ),
+      datarowCheckboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? AppTheme.primary : null),
+      ),
+      onSelectAll: (val) {
+        final newSet = val == true ? employees.map((e) => e.id).toSet() : <String>{};
+        onSelectionChanged(newSet);
+      },
+      columns: cols,
       rows: employees.map((e) {
         final color = _levelColor(e.roleLevel);
-        return DataRow2(
-          onTap: () => onSelect(e),
-          color: WidgetStateProperty.all(
-              e.isActive ? Colors.white : AppTheme.grey100),
-          cells: [
-            DataCell(Row(
+        final isSel = selectedIds.contains(e.id);
+        final cells = <DataCell>[
+          // Name
+          DataCell(Row(children: [
+            _EmpAvatar(url: e.photoUrl, name: e.fullName, color: color),
+            const SizedBox(width: 8),
+            Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _EmpAvatar(url: e.photoUrl, name: e.fullName, color: color),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment:  MainAxisAlignment.center,
-                    children: [
-                      Text(e.fullName,
-                          style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600, fontSize: 13),
-                          overflow: TextOverflow.ellipsis),
-                      Text(e.email,
-                          style: GoogleFonts.poppins(
-                              fontSize: 11, color: AppTheme.grey600),
-                          overflow: TextOverflow.ellipsis),
-                    ],
-                  ),
-                ),
+                Text(e.fullName, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13), overflow: TextOverflow.ellipsis),
+                Text(e.email,    style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey500), overflow: TextOverflow.ellipsis),
               ],
             )),
-            DataCell(Text(e.employeeId,
-                style: GoogleFonts.poppins(
-                    fontSize: 11, color: AppTheme.grey600))),
-            DataCell(Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width:  6, height: 6,
-                  decoration: BoxDecoration(
-                      color: color, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 6),
-                Text(e.roleName,
-                    style: GoogleFonts.poppins(fontSize: 12),
-                    overflow: TextOverflow.ellipsis),
+          ])),
+        ];
+
+        for (final colKey in visibleColumns) {
+          if (colKey == 'name') continue;
+          switch (colKey) {
+            case 'employeeId':
+              cells.add(DataCell(Text(e.employeeId, style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600))));
+              break;
+            case 'role':
+              cells.add(DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                const SizedBox(width: 5),
+                Flexible(child: Text(e.roleName, style: GoogleFonts.poppins(fontSize: 11), overflow: TextOverflow.ellipsis)),
                 const SizedBox(width: 4),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(
-                    color:        color.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text('L${e.roleLevel}',
-                      style: GoogleFonts.poppins(
-                          fontSize: 9,
-                          color:      color,
-                          fontWeight: FontWeight.w700)),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(4)),
+                  child: Text('L${e.roleLevel}', style: GoogleFonts.poppins(fontSize: 9, color: color, fontWeight: FontWeight.w700)),
                 ),
-              ],
-            )),
-            DataCell(Text(e.branchName ?? '—',
-                style: GoogleFonts.poppins(fontSize: 12),
-                overflow: TextOverflow.ellipsis)),
-            DataCell(Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _PermIcon(icon: Icons.check_circle, active: e.canApprove,    tooltip: 'Can Approve'),
+              ])));
+              break;
+            case 'branch':
+              cells.add(DataCell(Text(e.branchName ?? '—', style: GoogleFonts.poppins(fontSize: 12), overflow: TextOverflow.ellipsis)));
+              break;
+            case 'phone':
+              cells.add(DataCell(Text(e.phone ?? '—', style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600))));
+              break;
+            case 'email':
+              cells.add(DataCell(Text(e.email, style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600), overflow: TextOverflow.ellipsis)));
+              break;
+            case 'manager':
+              cells.add(DataCell(Text(e.managerName ?? '—', style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600), overflow: TextOverflow.ellipsis)));
+              break;
+            case 'permissions':
+              cells.add(DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                _PermIcon(icon: Icons.check_circle, active: e.canApprove, tooltip: 'Can Approve'),
                 const SizedBox(width: 4),
                 _PermIcon(icon: Icons.upload_file,  active: e.canUploadBulk, tooltip: 'Bulk Upload'),
-              ],
-            )),
-            DataCell(Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: e.isActive
-                    ? AppTheme.statusGreen.withOpacity(0.1)
-                    : AppTheme.grey200,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(e.isActive ? 'Active' : 'Inactive',
-                  style: GoogleFonts.poppins(
-                      fontSize: 10,
-                      color: e.isActive
-                          ? AppTheme.statusGreen
-                          : AppTheme.grey600,
-                      fontWeight: FontWeight.w600)),
-            )),
-            DataCell(Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  onPressed: () => onSelect(e),
-                  icon:    const Icon(Icons.info_outline, size: 16),
-                  color:   AppTheme.primary,
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 28, minHeight: 28),
-                  tooltip: 'View',
+              ])));
+              break;
+            case 'status':
+              cells.add(DataCell(Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: e.isActive ? AppTheme.statusGreen.withOpacity(0.1) : AppTheme.grey200,
+                  borderRadius: BorderRadius.circular(6),
                 ),
-              ],
-            )),
-          ],
+                child: Text(e.isActive ? 'Active' : 'Inactive', style: GoogleFonts.poppins(
+                  fontSize: 10, fontWeight: FontWeight.w600,
+                  color: e.isActive ? AppTheme.statusGreen : AppTheme.grey600)),
+              )));
+              break;
+          }
+        }
+
+        // Actions cell — always last
+        cells.add(DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+          if (canEdit)
+            Tooltip(
+              message: 'Edit',
+              child: InkWell(
+                onTap: () => onEdit(e),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(Icons.edit_rounded, size: 14, color: AppTheme.primary),
+                ),
+              ),
+            ),
+        ])));
+
+        return DataRow2(
+          selected: isSel,
+          onSelectChanged: (v) {
+            final newSet = Set<String>.from(selectedIds);
+            if (v == true) newSet.add(e.id); else newSet.remove(e.id);
+            onSelectionChanged(newSet);
+          },
+          color: WidgetStateProperty.all(isSel ? AppTheme.primary.withOpacity(0.04) : (e.isActive ? Colors.white : AppTheme.grey50)),
+          cells: cells,
         );
       }).toList(),
     );
   }
 }
 
+// ── Sort Dialog ────────────────────────────────────────────────
+class _SortDialog extends StatefulWidget {
+  final List<_SortConfig> sorts;
+  final ValueChanged<List<_SortConfig>> onChanged;
+  const _SortDialog({required this.sorts, required this.onChanged});
+
+  @override
+  State<_SortDialog> createState() => _SortDialogState();
+}
+
+class _SortDialogState extends State<_SortDialog> {
+  late List<_SortConfig> _draft;
+
+  static const _cols = [
+    ('name',       'Employee Name'),
+    ('employeeId', 'Employee ID'),
+    ('roleLevel',  'Role Level'),
+    ('branch',     'Branch'),
+    ('status',     'Status'),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _draft = List.from(widget.sorts);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 420,
+        padding: const EdgeInsets.all(20),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.sort_rounded, color: AppTheme.primary, size: 20),
+            const SizedBox(width: 8),
+            Text('Multi-Sort', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 15)),
+            const Spacer(),
+            if (_draft.isNotEmpty)
+              TextButton(onPressed: () => setState(() => _draft = []), child: Text('Clear', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500))),
+          ]),
+          const SizedBox(height: 4),
+          Text('Click a column header to quick-sort. Use this dialog for multi-level sorting.',
+            style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey500)),
+          const SizedBox(height: 16),
+          ..._draft.asMap().entries.map((entry) {
+            final i = entry.key;
+            final s = entry.value;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withOpacity(0.04),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+              ),
+              child: Row(children: [
+                Text('${i + 1}.', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primary)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: s.column,
+                      isDense: true,
+                      style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey900),
+                      items: _cols.map((c) => DropdownMenuItem(value: c.$1, child: Text(c.$2))).toList(),
+                      onChanged: (v) => setState(() => _draft[i] = _draft[i].copyWith(column: v)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => setState(() => _draft[i] = _draft[i].toggle()),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(color: AppTheme.primary, borderRadius: BorderRadius.circular(6)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(s.ascending ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded, size: 12, color: Colors.white),
+                      const SizedBox(width: 4),
+                      Text(s.ascending ? 'Asc' : 'Desc', style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
+                    ]),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  onPressed: () => setState(() => _draft.removeAt(i)),
+                  icon: const Icon(Icons.close, size: 14),
+                  color: AppTheme.grey400,
+                  constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                  padding: EdgeInsets.zero,
+                ),
+              ]),
+            );
+          }),
+          if (_draft.length < 3)
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _draft.add(_SortConfig('name', true))),
+              icon: const Icon(Icons.add, size: 14),
+              label: Text('Add sort level', style: GoogleFonts.poppins(fontSize: 12)),
+              style: OutlinedButton.styleFrom(foregroundColor: AppTheme.primary, side: const BorderSide(color: AppTheme.primary)),
+            ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))),
+            const SizedBox(width: 10),
+            Expanded(child: ElevatedButton(
+              onPressed: () { widget.onChanged(_draft); Navigator.pop(context); },
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary, foregroundColor: Colors.white),
+              child: Text('Apply', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+            )),
+          ]),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Column Chooser Dialog ──────────────────────────────────────
+class _ColumnChooserDialog extends StatefulWidget {
+  final List<String> visible;
+  final ValueChanged<List<String>> onChanged;
+  const _ColumnChooserDialog({required this.visible, required this.onChanged});
+
+  @override
+  State<_ColumnChooserDialog> createState() => _ColumnChooserDialogState();
+}
+
+class _ColumnChooserDialogState extends State<_ColumnChooserDialog> {
+  // All optional columns in their current display order: (key, label, visible)
+  late List<(String, String, bool)> _cols;
+
+  @override
+  void initState() {
+    super.initState();
+    final visSet = widget.visible.toSet();
+    final orderedVisible = widget.visible
+        .where((k) => k != 'name')
+        .map((k) {
+          final match = _allColumns.where((c) => c.$1 == k);
+          return match.isNotEmpty ? match.first : (k, k);
+        })
+        .toList();
+    final hidden = _allColumns
+        .where((c) => c.$1 != 'name' && !visSet.contains(c.$1))
+        .toList();
+    _cols = [
+      ...orderedVisible.map((c) => (c.$1, c.$2, true)),
+      ...hidden.map((c) => (c.$1, c.$2, false)),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 360,
+        constraints: const BoxConstraints(maxHeight: 560),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+            decoration: const BoxDecoration(
+              gradient: AppTheme.primaryGradient,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Row(children: [
+              const Icon(Icons.view_column_rounded, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Text('Choose Columns', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+              const Spacer(),
+              TextButton(
+                onPressed: () => setState(() => _cols = _cols.map((c) => (c.$1, c.$2, true)).toList()),
+                child: Text('All', style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12)),
+              ),
+              TextButton(
+                onPressed: () => setState(() => _cols = _cols.map((c) => (c.$1, c.$2, false)).toList()),
+                child: Text('Reset', style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12)),
+              ),
+              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close, color: Colors.white, size: 16)),
+            ]),
+          ),
+          // Fixed: Name column (always visible)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            color: AppTheme.primary.withOpacity(0.04),
+            child: Row(children: [
+              const Icon(Icons.lock_rounded, size: 14, color: AppTheme.grey400),
+              const SizedBox(width: 10),
+              Text('Employee Name', style: GoogleFonts.poppins(fontSize: 13, color: AppTheme.grey500)),
+              const Spacer(),
+              Text('Always visible', style: GoogleFonts.poppins(fontSize: 10, color: AppTheme.grey400, fontStyle: FontStyle.italic)),
+            ]),
+          ),
+          const Divider(height: 1),
+          // Reorderable list
+          Flexible(
+            child: ReorderableListView.builder(
+              shrinkWrap: true,
+              onReorder: (old, newIdx) {
+                setState(() {
+                  if (newIdx > old) newIdx--;
+                  final item = _cols.removeAt(old);
+                  _cols.insert(newIdx, item);
+                });
+              },
+              itemCount: _cols.length,
+              itemBuilder: (_, i) {
+                final col = _cols[i];
+                return ListTile(
+                  key: ValueKey(col.$1),
+                  dense: true,
+                  leading: Checkbox(
+                    value: col.$3,
+                    onChanged: (v) => setState(() => _cols[i] = (col.$1, col.$2, v ?? false)),
+                    activeColor: AppTheme.primary,
+                  ),
+                  title: Text(col.$2, style: GoogleFonts.poppins(fontSize: 13, color: col.$3 ? AppTheme.grey900 : AppTheme.grey400)),
+                  trailing: ReorderableDragStartListener(
+                    index: i,
+                    child: const Icon(Icons.drag_indicator_rounded, color: AppTheme.grey400, size: 18),
+                  ),
+                );
+              },
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(children: [
+              Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))),
+              const SizedBox(width: 10),
+              Expanded(child: ElevatedButton(
+                onPressed: () {
+                  final visible = ['name', ..._cols.where((c) => c.$3).map((c) => c.$1)];
+                  widget.onChanged(visible);
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary, foregroundColor: Colors.white),
+                child: Text('Apply', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+              )),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+// ── Avatar ────────────────────────────────────────────────────
 class _EmpAvatar extends StatelessWidget {
   final String? url;
   final String name;
@@ -399,18 +1088,14 @@ class _EmpAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (url != null && url!.isNotEmpty) {
-      return CircleAvatar(
-          radius: 18, backgroundImage: NetworkImage(url!));
+      return CircleAvatar(radius: 18, backgroundImage: NetworkImage(url!));
     }
     return CircleAvatar(
-      radius:          18,
+      radius: 18,
       backgroundColor: color.withOpacity(0.15),
       child: Text(
         name.isNotEmpty ? name[0].toUpperCase() : 'E',
-        style: GoogleFonts.poppins(
-            color:      color,
-            fontSize:   13,
-            fontWeight: FontWeight.w700),
+        style: GoogleFonts.poppins(color: color, fontSize: 13, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -420,717 +1105,11 @@ class _PermIcon extends StatelessWidget {
   final IconData icon;
   final bool active;
   final String tooltip;
-  const _PermIcon({
-    required this.icon,
-    required this.active,
-    required this.tooltip,
-  });
+  const _PermIcon({required this.icon, required this.active, required this.tooltip});
 
   @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Icon(
-        icon,
-        size:  14,
-        color: active ? AppTheme.statusGreen : AppTheme.grey300,
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Tooltip(
+    message: tooltip,
+    child: Icon(icon, size: 14, color: active ? AppTheme.statusGreen : AppTheme.grey300),
+  );
 }
-
-const Color _grey400 = Color(0xFFBDBDBD);
-
-// ── Employee Detail Panel ─────────────────────────────────────
-class _EmployeeDetailPanel extends StatefulWidget {
-  final EmployeeRecord employee;
-  final VoidCallback onClose;
-  final VoidCallback onEdit;
-  const _EmployeeDetailPanel({
-    required this.employee,
-    required this.onClose,
-    required this.onEdit,
-  });
-
-  @override
-  State<_EmployeeDetailPanel> createState() => _EmployeeDetailPanelState();
-}
-
-class _EmployeeDetailPanelState extends State<_EmployeeDetailPanel> {
-  bool _actioning = false;
-
-  Color get _levelColor {
-    switch (widget.employee.roleLevel) {
-      case 1: return const Color(0xFFFFD700);
-      case 2: return const Color(0xFFC0C0C0);
-      case 3: return const Color(0xFFCD7F32);
-      case 4: return AppTheme.primary;
-      case 5: return AppTheme.secondary;
-      default: return AppTheme.grey600;
-    }
-  }
-
-  Future<void> _deactivate(BuildContext context) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Deactivate Employee?'),
-        content: Text(
-            'This will deactivate ${widget.employee.fullName} and remove them from active lists.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
-            child: const Text('Deactivate'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
-    setState(() => _actioning = true);
-    try {
-      await ApiService().delete('/employees/${widget.employee.id}');
-      if (mounted) {
-        widget.onClose();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Employee deactivated'), backgroundColor: AppTheme.error),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.error),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _actioning = false);
-    }
-  }
-
-  Future<void> _toggleHidden(BuildContext context) async {
-    setState(() => _actioning = true);
-    try {
-      await ApiService().patch('/employees/${widget.employee.id}/toggle-hidden');
-      if (mounted) {
-        widget.onClose();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Visibility updated'), backgroundColor: AppTheme.primary),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.error),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _actioning = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = _levelColor;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text('Details',
-                    style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w600, fontSize: 14)),
-                const Spacer(),
-                IconButton(
-                  onPressed: widget.onClose,
-                  icon: const Icon(Icons.close, size: 18),
-                ),
-              ],
-            ),
-            const Divider(),
-            const SizedBox(height: 8),
-            Center(
-              child: Column(
-                children: [
-                  _EmpAvatar(
-                      url:   widget.employee.photoUrl,
-                      name:  widget.employee.fullName,
-                      color: c),
-                  const SizedBox(height: 8),
-                  Text(widget.employee.fullName,
-                      style: GoogleFonts.poppins(
-                          fontWeight: FontWeight.w700, fontSize: 15)),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 3),
-                    decoration: BoxDecoration(
-                      color:        c.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width:  6, height: 6,
-                          decoration:
-                              BoxDecoration(color: c, shape: BoxShape.circle),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'L${widget.employee.roleLevel} · ${widget.employee.roleName}',
-                          style: GoogleFonts.poppins(
-                              color:      c,
-                              fontSize:   11,
-                              fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            _Row('ID',       widget.employee.employeeId,     Icons.badge_outlined),
-            _Row('Email',    widget.employee.email,           Icons.email_outlined),
-            if (widget.employee.phone != null)
-              _Row('Phone',  widget.employee.phone!,          Icons.phone_outlined),
-            if (widget.employee.branchName != null)
-              _Row('Branch', widget.employee.branchName!,     Icons.account_tree_outlined),
-            if (widget.employee.managerName != null)
-              _Row('Reports to', widget.employee.managerName!, Icons.person_outline),
-            const SizedBox(height: 12),
-            // Permissions
-            Text('Permissions',
-                style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    color: AppTheme.grey600,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              children: [
-                _PermChip(
-                    label: 'Can Approve',
-                    active: widget.employee.canApprove),
-                _PermChip(
-                    label: 'Bulk Upload',
-                    active: widget.employee.canUploadBulk),
-              ],
-            ),
-            const Spacer(),
-            // Edit button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _actioning ? null : widget.onEdit,
-                icon:  const Icon(Icons.edit, size: 14),
-                label: const Text('Edit Employee'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Hide / Unhide
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _actioning ? null : () => _toggleHidden(context),
-                icon: const Icon(Icons.visibility_off_outlined, size: 14),
-                label: const Text('Hide / Unhide'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.grey700,
-                  side: const BorderSide(color: AppTheme.grey300),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            // Deactivate
-            if (widget.employee.isActive)
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _actioning ? null : () => _deactivate(context),
-                  icon: _actioning
-                      ? const SizedBox(width: 14, height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.person_off_outlined, size: 14),
-                  label: const Text('Deactivate'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.error,
-                    side: BorderSide(color: AppTheme.error.withOpacity(0.5)),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    ).animate().slideX(begin: 0.3, duration: 300.ms);
-  }
-}
-
-class _Row extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  const _Row(this.label, this.value, this.icon);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 14, color: AppTheme.grey600),
-          const SizedBox(width: 6),
-          Text('$label: ',
-              style: GoogleFonts.poppins(
-                  fontSize: 12, color: AppTheme.grey600)),
-          Expanded(
-            child: Text(value,
-                style: GoogleFonts.poppins(
-                    fontSize: 12, fontWeight: FontWeight.w500),
-                overflow: TextOverflow.ellipsis),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PermChip extends StatelessWidget {
-  final String label;
-  final bool active;
-  const _PermChip({required this.label, required this.active});
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      avatar: Icon(
-        active ? Icons.check_circle : Icons.cancel,
-        size:  12,
-        color: active ? AppTheme.statusGreen : _grey400,
-      ),
-      label: Text(label,
-          style: GoogleFonts.poppins(
-              fontSize: 10,
-              color: active ? AppTheme.statusGreen : AppTheme.grey600)),
-      backgroundColor: active
-          ? AppTheme.statusGreen.withOpacity(0.08)
-          : AppTheme.grey100,
-      side: BorderSide(
-          color: active
-              ? AppTheme.statusGreen.withOpacity(0.3)
-              : AppTheme.grey300),
-      visualDensity: VisualDensity.compact,
-    );
-  }
-}
-
-
-// ── Bulk Upload Dialog ────────────────────────────────────────
-
-class _BulkUploadDialog extends StatefulWidget {
-  const _BulkUploadDialog();
-
-  @override
-  State<_BulkUploadDialog> createState() => _BulkUploadDialogState();
-}
-
-class _BulkUploadDialogState extends State<_BulkUploadDialog> {
-  PlatformFile? _file;
-  bool _isLoading = false;
-  
-  // Validation state
-  bool _isValidated = false;
-  List<dynamic> _previewResults = [];
-  int _totalRows = 0;
-  int _totalOk = 0;
-  int _totalFail = 0;
-  bool _canSubmit = false;
-
-  // Effective dates
-  DateTime? _startDate;
-  DateTime? _endDate;
-
-  final NumberFormat _fmt = NumberFormat('#,###');
-
-  Future<void> _pick() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['xlsx', 'xls', 'csv'],
-      withData: true,
-    );
-    if (result != null && result.files.isNotEmpty) {
-      setState(() {
-        _file = result.files.first;
-        _isValidated = false;
-        _previewResults = [];
-      });
-      _validateFile();
-    }
-  }
-
-  Future<void> _validateFile() async {
-    if (_file == null || _file!.bytes == null) return;
-    setState(() => _isLoading = true);
-    
-    try {
-      final res = await ApiService().postMultipart(
-        '/employees/validate-bulk',
-        {},
-        fileBytes: _file!.bytes!,
-        fileName: _file!.name,
-      );
-
-      if (res['success'] == true && res['data'] != null) {
-        setState(() {
-          _isValidated = true;
-          _previewResults = res['data']['results'] ?? [];
-          _totalOk = res['data']['totalOk'] ?? 0;
-          _totalFail = res['data']['totalFail'] ?? 0;
-          _totalRows = _previewResults.length;
-          _canSubmit = res['data']['canSubmit'] ?? false;
-        });
-      } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Validation failed'), backgroundColor: AppTheme.error));
-        setState(() => _file = null);
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.error));
-      setState(() => _file = null);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _submit() async {
-    if (_file == null || _file!.bytes == null || !_canSubmit) return;
-    if (_startDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Effective Start Date is required'), backgroundColor: AppTheme.error));
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    try {
-      final fields = {
-        'effective_start_date': DateFormat('yyyy-MM-dd').format(_startDate!),
-        if (_endDate != null) 'effective_end_date': DateFormat('yyyy-MM-dd').format(_endDate!),
-      };
-      
-      final res = await ApiService().postMultipart(
-        '/employees/bulk',
-        fields,
-        fileBytes: _file!.bytes!,
-        fileName: _file!.name,
-      );
-
-      if (res['success'] == true) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Successfully imported ${res['data']?['inserted'] ?? 0} employees'), backgroundColor: AppTheme.statusGreen));
-          Navigator.of(context).pop(true);
-        }
-      } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Upload failed'), backgroundColor: AppTheme.error));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.error));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _pickDate(bool isStart) async {
-    final initial = isStart ? (_startDate ?? DateTime.now()) : (_endDate ?? (_startDate ?? DateTime.now()));
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: const ColorScheme.light(primary: AppTheme.primary),
-        ),
-        child: child!,
-      ),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isStart) _startDate = picked;
-        else _endDate = picked;
-      });
-    }
-  }
-
-  void _downloadTemplate() async {
-    try {
-      final url = '${AppConstants.apiBaseUrl}/employees/bulk-template/download';
-      if (await canLaunchUrlString(url)) {
-        await launchUrlString(url);
-      } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not launch download URL'), backgroundColor: AppTheme.error));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error downloading template: $e'), backgroundColor: AppTheme.error));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: 800,
-        height: 650,
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text('Bulk Upload Employees', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: AppTheme.grey900)),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: _downloadTemplate,
-                  icon: const Icon(Icons.download, size: 16, color: AppTheme.primary),
-                  label: Text('Download Template', style: GoogleFonts.poppins(fontSize: 13, color: AppTheme.primary)),
-                ),
-                const SizedBox(width: 8),
-                IconButton(onPressed: () => Navigator.of(context).pop(), icon: const Icon(Icons.close)),
-              ],
-            ),
-            const Divider(),
-            
-            // Upload Dropzone
-            if (!_isValidated)
-              Expanded(
-                child: Center(
-                  child: InkWell(
-                    onTap: _isLoading ? null : _pick,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      width: 400,
-                      height: 200,
-                      decoration: BoxDecoration(
-                        color: AppTheme.grey50,
-                        border: Border.all(color: AppTheme.grey300, style: BorderStyle.solid),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: _isLoading 
-                        ? const Center(child: CircularProgressIndicator())
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.cloud_upload_outlined, size: 48, color: AppTheme.primary),
-                              const SizedBox(height: 16),
-                              Text('Click to select XLSX / CSV', style: GoogleFonts.poppins(fontSize: 14, color: AppTheme.grey800, fontWeight: FontWeight.w500)),
-                              const SizedBox(height: 4),
-                              Text('Max file size: 20MB', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500)),
-                            ],
-                          ),
-                    ),
-                  ),
-                ),
-              ),
-
-            // Validation Preview
-            if (_isValidated) ...[
-              Row(
-                children: [
-                   Container(
-                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                     decoration: BoxDecoration(color: AppTheme.grey100, borderRadius: BorderRadius.circular(8)),
-                     child: Row(
-                       children: [
-                         const Icon(Icons.file_present, size: 16, color: AppTheme.grey700),
-                         const SizedBox(width: 8),
-                         Text(_file?.name ?? '', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500)),
-                         const SizedBox(width: 12),
-                         InkWell(
-                           onTap: () => setState(() { _isValidated = false; _file = null; }),
-                           child: Text('Change File', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.primary, decoration: TextDecoration.underline)),
-                         )
-                       ],
-                     ),
-                   ),
-                   const Spacer(),
-                   _buildStat('Total', _totalRows, AppTheme.grey700),
-                   const SizedBox(width: 16),
-                   _buildStat('Valid', _totalOk, AppTheme.statusGreen),
-                   const SizedBox(width: 16),
-                   _buildStat('Errors', _totalFail, AppTheme.error),
-                ],
-              ),
-              const SizedBox(height: 16),
-              if (!_canSubmit)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(color: AppTheme.error.withOpacity(0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: AppTheme.error.withOpacity(0.3))),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.error_outline, color: AppTheme.error, size: 20),
-                      const SizedBox(width: 12),
-                      Expanded(child: Text('Please fix the errors in your file and re-upload. Submitting is disabled while errors exist.', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.error))),
-                    ],
-                  ),
-                ),
-                
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(border: Border.all(color: AppTheme.grey200), borderRadius: BorderRadius.circular(8)),
-                  child: ListView.separated(
-                    itemCount: _previewResults.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final row = _previewResults[index];
-                      final isFail = row['status'] == 'failed';
-                      final isWarn = row['status'] == 'warning';
-                      final data = row['data'] ?? {};
-                      
-                      return Container(
-                        color: isFail ? AppTheme.error.withOpacity(0.05) : (isWarn ? Colors.orange.withOpacity(0.05) : Colors.transparent),
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(width: 40, child: Text('#${row['row']}', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey600))),
-                            Icon(isFail ? Icons.cancel : (isWarn ? Icons.warning : Icons.check_circle), size: 16, color: isFail ? AppTheme.error : (isWarn ? Colors.orange : AppTheme.statusGreen)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              flex: 2,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('${data['firstName']} ${data['lastName']}', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.grey900)),
-                                  Text('${data['empId']} • ${data['roleName']}', style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600)),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              flex: 3,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (row['errors'] != null && (row['errors'] as List).isNotEmpty)
-                                    ...((row['errors'] as List).map((e) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                      const Padding(padding: EdgeInsets.only(top: 2, right: 6), child: Icon(Icons.circle, size: 6, color: AppTheme.error)),
-                                      Expanded(child: Text(e.toString(), style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.error))),
-                                    ]))),
-                                  if (row['warnings'] != null && (row['warnings'] as List).isNotEmpty)
-                                    ...((row['warnings'] as List).map((w) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                      const Padding(padding: EdgeInsets.only(top: 2, right: 6), child: Icon(Icons.circle, size: 6, color: Colors.orange)),
-                                      Expanded(child: Text(w.toString(), style: GoogleFonts.poppins(fontSize: 11, color: Colors.orange.shade800))),
-                                    ]))),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-
-              if (_canSubmit) ...[
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: AppTheme.grey50, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppTheme.grey200)),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Effective Start Date *', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 6),
-                            InkWell(
-                              onTap: () => _pickDate(true),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                decoration: BoxDecoration(border: Border.all(color: AppTheme.grey300), borderRadius: BorderRadius.circular(6), color: Colors.white),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.calendar_today, size: 16, color: AppTheme.grey600),
-                                    const SizedBox(width: 8),
-                                    Text(_startDate != null ? DateFormat('MMM dd, yyyy').format(_startDate!) : 'Select Date', style: GoogleFonts.poppins(fontSize: 13, color: _startDate != null ? AppTheme.grey900 : AppTheme.grey500)),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Effective End Date (Optional)', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 6),
-                            InkWell(
-                              onTap: () => _pickDate(false),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                decoration: BoxDecoration(border: Border.all(color: AppTheme.grey300), borderRadius: BorderRadius.circular(6), color: Colors.white),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.calendar_today, size: 16, color: AppTheme.grey600),
-                                    const SizedBox(width: 8),
-                                    Text(_endDate != null ? DateFormat('MMM dd, yyyy').format(_endDate!) : 'Select Date', style: GoogleFonts.poppins(fontSize: 13, color: _endDate != null ? AppTheme.grey900 : AppTheme.grey500)),
-                                    if (_endDate != null) ...[
-                                      const Spacer(),
-                                      InkWell(onTap: () => setState(() => _endDate = null), child: const Icon(Icons.close, size: 14)),
-                                    ]
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-                const SizedBox(width: 12),
-                ElevatedButton(
-                  onPressed: _isValidated && _canSubmit && _startDate != null && !_isLoading ? _submit : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  ),
-                  child: _isLoading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
-                                    : const Text('Submit Data', style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStat(String label, int count, Color color) {
-    return Column(
-      children: [
-        Text(_fmt.format(count), style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
-        Text(label, style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey600)),
-      ],
-    );
-  }
-}
-

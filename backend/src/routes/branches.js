@@ -70,6 +70,37 @@ router.post('/', authenticate, requireRole('super_admin','school_owner','princip
        phone1 || '', phone2, email || '', website, whatsapp_no, req.user.id]
     );
     const [branch] = await query('SELECT * FROM branches WHERE id = ?', [id]);
+
+    // ── Seed default class sections ───────────────────────────
+    // Pre-load Nursery/LKG/UKG/1–12 each with sections A and B
+    const defaultClasses = [
+      { name: 'Nursery', level: 0 }, { name: 'LKG', level: 0 }, { name: 'UKG', level: 0 },
+      { name: '1', level: 1 }, { name: '2', level: 2 }, { name: '3', level: 3 },
+      { name: '4', level: 4 }, { name: '5', level: 5 }, { name: '6', level: 6 },
+      { name: '7', level: 7 }, { name: '8', level: 8 }, { name: '9', level: 9 },
+      { name: '10', level: 10 }, { name: '11', level: 11 }, { name: '12', level: 12 },
+    ];
+    const defaultSections = ['A', 'B'];
+
+    for (const cls of defaultClasses) {
+      const classId = uuid();
+      await query(
+        `INSERT IGNORE INTO classes (id, branch_id, name, numeric_level, sections)
+         VALUES (?, ?, ?, ?, ?)`,
+        [classId, id, cls.name, cls.level || null, JSON.stringify(defaultSections)]
+      );
+      // Fetch the actual id (might already exist via IGNORE)
+      const [row] = await query('SELECT id FROM classes WHERE branch_id = ? AND name = ?', [id, cls.name]);
+      const cid = row?.id || classId;
+      for (const sec of defaultSections) {
+        await query(
+          `INSERT IGNORE INTO class_sections (id, class_id, section, class_name, branch_id, school_id)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [uuid(), cid, sec, cls.name, id, effectiveSchoolId]
+        );
+      }
+    }
+
     res.status(201).json({ success: true, data: branch });
   } catch (err) { next(err); }
 });

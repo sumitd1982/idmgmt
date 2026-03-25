@@ -11,6 +11,8 @@ import 'package:file_picker/file_picker.dart';
 import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../services/api_service.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/school_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
@@ -125,14 +127,17 @@ class _StudentFilter {
     String?  status,
     String?  search,
     int?     page,
-    bool clearStatus = false,
+    bool clearStatus   = false,
+    bool clearBranchId = false,
+    bool clearClassName = false,
+    bool clearSection  = false,
   }) =>
       _StudentFilter(
         schoolId:  schoolId  ?? this.schoolId,
-        branchId:  branchId  ?? this.branchId,
-        className: className ?? this.className,
-        section:   section   ?? this.section,
-        status:    clearStatus ? null : (status ?? this.status),
+        branchId:  clearBranchId  ? null : (branchId  ?? this.branchId),
+        className: clearClassName ? null : (className ?? this.className),
+        section:   clearSection   ? null : (section   ?? this.section),
+        status:    clearStatus    ? null : (status    ?? this.status),
         search:    search    ?? this.search,
         page:      page      ?? this.page,
       );
@@ -161,6 +166,16 @@ final _studentsProvider =
 });
 
 final _selectedStudentsProvider = StateProvider<Set<String>>((_) => {});
+
+final _schoolClassesProvider = FutureProvider.family<List<dynamic>, String?>((ref, schoolId) async {
+  if (schoolId == null) return [];
+  try {
+    final data = await ApiService().get('/classes', params: {'school_id': schoolId});
+    return data['data'] as List<dynamic>? ?? [];
+  } catch (_) {
+    return [];
+  }
+});
 
 // ── Screen ────────────────────────────────────────────────────
 class StudentScreen extends ConsumerStatefulWidget {
@@ -240,6 +255,31 @@ class _FilterToolbar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final currentUser  = ref.watch(authNotifierProvider).valueOrNull;
+    final schoolId     = currentUser?.schoolId ?? currentUser?.employee?.schoolId;
+    final branches     = ref.watch(branchesProvider(schoolId)).valueOrNull ?? [];
+    final classes      = ref.watch(_schoolClassesProvider(schoolId)).valueOrNull ?? [];
+
+    // Unique class names sorted
+    final classNames = classes
+        .map((c) => c['name'] as String? ?? '')
+        .where((n) => n.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+
+    // Sections for selected class (or all if no class selected)
+    final sections = <String>{};
+    for (final cls in classes) {
+      if (filter.className == null || cls['name'] == filter.className) {
+        for (final s in (cls['sections_detail'] as List<dynamic>? ?? [])) {
+          final sec = s['section'] as String? ?? '';
+          if (sec.isNotEmpty) sections.add(sec);
+        }
+      }
+    }
+    final sectionList = sections.toList()..sort();
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -248,33 +288,55 @@ class _FilterToolbar extends ConsumerWidget {
           runSpacing: 12,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            // School
-            _DropdownFilter(
-              hint:  'All Schools',
-              value: null,
-              items: const ['Green Valley School', 'Blue Ridge School'],
-              onChanged: (_) {},
-            ),
             // Branch
-            _DropdownFilter(
-              hint:  'All Branches',
-              value: null,
-              items: const ['Main Branch', 'East Campus', 'West Campus'],
-              onChanged: (_) {},
+            SizedBox(
+              width: 160,
+              child: DropdownButtonFormField<String>(
+                value: filter.branchId,
+                isDense: true,
+                hint: Text('All Branches', style: GoogleFonts.poppins(fontSize: 12)),
+                decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                items: [
+                  DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Branches', style: GoogleFonts.poppins(fontSize: 12)),
+                  ),
+                  ...branches.map((b) => DropdownMenuItem<String>(
+                    value: b['id'] as String?,
+                    child: Text(b['name'] as String? ?? '', style: GoogleFonts.poppins(fontSize: 12), overflow: TextOverflow.ellipsis),
+                  )),
+                ],
+                onChanged: (v) {
+                  final f = ref.read(_studentFilterProvider);
+                  ref.read(_studentFilterProvider.notifier).state = v == null
+                      ? f.copyWith(clearBranchId: true, page: 1)
+                      : f.copyWith(branchId: v, page: 1);
+                },
+              ),
             ),
             // Class
             _DropdownFilter(
               hint:  'All Classes',
-              value: null,
-              items: List.generate(10, (i) => 'Class ${i + 1}'),
-              onChanged: (_) {},
+              value: filter.className,
+              items: classNames,
+              onChanged: (v) {
+                final f = ref.read(_studentFilterProvider);
+                ref.read(_studentFilterProvider.notifier).state = v == null
+                    ? f.copyWith(clearClassName: true, clearSection: true, page: 1)
+                    : f.copyWith(className: v, clearSection: true, page: 1);
+              },
             ),
             // Section
             _DropdownFilter(
               hint:  'All Sections',
-              value: null,
-              items: const ['A', 'B', 'C', 'D'],
-              onChanged: (_) {},
+              value: filter.section,
+              items: sectionList,
+              onChanged: (v) {
+                final f = ref.read(_studentFilterProvider);
+                ref.read(_studentFilterProvider.notifier).state = v == null
+                    ? f.copyWith(clearSection: true, page: 1)
+                    : f.copyWith(section: v, page: 1);
+              },
             ),
             // Search
             SizedBox(
@@ -308,20 +370,13 @@ class _FilterToolbar extends ConsumerWidget {
             ),
             // Bulk upload
             OutlinedButton.icon(
-              onPressed: () => _showBulkUploadDialog(context),
+              onPressed: () => context.push('/students/bulk-upload'),
               icon:  const Icon(Icons.upload_file, size: 16),
               label: const Text('Bulk Upload'),
             ),
           ],
         ),
       ),
-    );
-  }
-
-  void _showBulkUploadDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => const _BulkUploadDialog(),
     );
   }
 }
@@ -350,9 +405,10 @@ class _DropdownFilter extends StatelessWidget {
           isDense: true,
           contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         ),
-        items: items
-            .map((s) => DropdownMenuItem(value: s, child: Text(s, style: GoogleFonts.poppins(fontSize: 12))))
-            .toList(),
+        items: [
+          DropdownMenuItem<String>(value: null, child: Text(hint, style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500))),
+          ...items.map((s) => DropdownMenuItem(value: s, child: Text(s, style: GoogleFonts.poppins(fontSize: 12)))),
+        ],
         onChanged: onChanged,
       ),
     );
@@ -712,7 +768,7 @@ class _StudentStatusBadge extends StatelessWidget {
   }
 }
 
-// ── Bulk Upload Dialog ────────────────────────────────────────
+// (Bulk upload moved to StudentBulkUploadScreen — see student_bulk_upload_screen.dart)
 
 class _BulkUploadDialog extends StatefulWidget {
   const _BulkUploadDialog();
@@ -849,14 +905,10 @@ class _BulkUploadDialogState extends State<_BulkUploadDialog> {
 
   void _downloadTemplate() async {
     try {
-      final url = '${AppConstants.apiBaseUrl}/students/bulk-template/download';
-      if (await canLaunchUrlString(url)) {
-        await launchUrlString(url);
-      } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not launch download URL'), backgroundColor: AppTheme.error));
-      }
+      await ApiService().downloadFile('/students/bulk-template/download', 'student_bulk_template.xlsx');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error downloading template: $e'), backgroundColor: AppTheme.error));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error downloading template: $e'), backgroundColor: AppTheme.error));
     }
   }
 

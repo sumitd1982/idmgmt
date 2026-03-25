@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:go_router/go_router.dart';
 import '../../config/theme.dart';
 import '../../providers/api_provider.dart';
 import '../../providers/auth_provider.dart';
@@ -65,6 +66,7 @@ class _EmployeeBulkUploadScreenState extends ConsumerState<EmployeeBulkUploadScr
   int _totalOk = 0;
   int _totalFail = 0;
   bool _canSubmit = false;
+  String? _batchId;
   // filter
   _RowStatus? _filterStatus;
   String _search = '';
@@ -108,6 +110,7 @@ class _EmployeeBulkUploadScreenState extends ConsumerState<EmployeeBulkUploadScr
         _totalOk   = data['totalOk'] as int? ?? 0;
         _totalFail = data['totalFail'] as int? ?? 0;
         _canSubmit = data['canSubmit'] as bool? ?? false;
+        _batchId   = data['batchId'] as String?;
       });
     } catch (e) {
       _showError('Validation failed: $e');
@@ -118,7 +121,7 @@ class _EmployeeBulkUploadScreenState extends ConsumerState<EmployeeBulkUploadScr
   }
 
   Future<void> _submit() async {
-    if (_fileBytes == null || !_canSubmit) return;
+    if (!_canSubmit || _batchId == null) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -147,12 +150,7 @@ class _EmployeeBulkUploadScreenState extends ConsumerState<EmployeeBulkUploadScr
     setState(() { _loading = true; _step = 3; });
     try {
       final api = ApiService();
-      final result = await api.uploadFile(
-        '/employees/bulk',
-        bytes: _fileBytes!,
-        fileName: _fileName ?? 'upload.xlsx',
-        fieldName: 'file',
-      );
+      final result = await api.post('/employees/bulk', body: { 'batch_id': _batchId });
       final data = result['data'] as Map? ?? {};
       setState(() {
         _insertedCount  = data['inserted'] as int?;
@@ -176,7 +174,7 @@ class _EmployeeBulkUploadScreenState extends ConsumerState<EmployeeBulkUploadScr
   void _reset() => setState(() {
     _step = 0; _fileName = null; _fileBytes = null;
     _rows = []; _totalOk = 0; _totalFail = 0;
-    _canSubmit = false; _insertedCount = null; _replacedCount = null;
+    _canSubmit = false; _batchId = null; _insertedCount = null; _replacedCount = null;
   });
 
   List<_ValidationRow> get _filtered {
@@ -198,7 +196,6 @@ class _EmployeeBulkUploadScreenState extends ConsumerState<EmployeeBulkUploadScr
     final isWide = MediaQuery.of(context).size.width > 900;
 
     return Scaffold(
-      backgroundColor: AppTheme.grey50,
       appBar: AppBar(
         title: Text('Employee Bulk Upload',
             style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 16)),
@@ -216,18 +213,48 @@ class _EmployeeBulkUploadScreenState extends ConsumerState<EmployeeBulkUploadScr
               icon: const Icon(Icons.restart_alt, size: 16),
               label: Text('Start Over', style: GoogleFonts.poppins(fontSize: 13)),
             ),
+          TextButton.icon(
+            onPressed: () => context.push('/employees/bulk-upload/history'),
+            icon: const Icon(Icons.history, size: 16),
+            label: Text('History', style: GoogleFonts.poppins(fontSize: 13)),
+          ),
           const SizedBox(width: 8),
         ],
       ),
-      body: isWide
-          ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(width: 260, child: _StepsSidebar(currentStep: _step)),
-              Expanded(child: _buildContent()),
-            ])
-          : Column(children: [
-              _StepsTopBar(currentStep: _step),
-              Expanded(child: _buildContent()),
-            ]),
+      body: Column(
+        children: [
+          if (user?.employee == null && user?.isSuperAdmin != true && user?.isSchoolOwner != true)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: const Color(0xFFFFF3E0),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Color(0xFFE65100), size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Your account is not linked to an employee profile. '
+                      'After uploading, remember to add yourself as an employee too.',
+                      style: GoogleFonts.poppins(fontSize: 12, color: const Color(0xFF5D4037)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: isWide
+                ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    SizedBox(width: 260, child: _StepsSidebar(currentStep: _step)),
+                    Expanded(child: _buildContent()),
+                  ])
+                : Column(children: [
+                    _StepsTopBar(currentStep: _step),
+                    Expanded(child: _buildContent()),
+                  ]),
+          ),
+        ],
+      ),
     );
   }
 
@@ -356,6 +383,11 @@ class _EmployeeBulkUploadScreenState extends ConsumerState<EmployeeBulkUploadScr
     );
   }
 
+  void _downloadValidationReport() {
+    if (_batchId == null) return;
+    ApiService().downloadFile('/employees/bulk-history/$_batchId/report', 'validation_report.xlsx');
+  }
+
   // Step 2 — Validation results
   Widget _buildStep2() {
     if (_loading) return _buildLoading('Validating file — checking each row…');
@@ -367,6 +399,7 @@ class _EmployeeBulkUploadScreenState extends ConsumerState<EmployeeBulkUploadScr
         ok: _totalOk,
         fail: _totalFail,
         canSubmit: _canSubmit,
+        onDownloadReport: _batchId != null ? _downloadValidationReport : null,
       ),
       // Filter + search
       Padding(
@@ -628,21 +661,33 @@ class _FieldTable extends StatelessWidget {
   const _FieldTable();
 
   static const _fields = [
-    ('employee_id *',       'Unique ID in your school',           true),
-    ('first_name *',        'Employee first name',                 true),
-    ('last_name *',         'Employee last name',                  true),
-    ('gender *',            'male / female / other',               true),
-    ('email *',             'Work email address',                  true),
-    ('phone *',             '10-digit mobile (starts 6–9)',        true),
-    ('org_role_level *',    'Role level 1–10 (1=Principal)',       true),
-    ('date_of_joining *',   'Format: YYYY-MM-DD',                  true),
-    ('org_role_code',       'Role code (e.g. SR_TEACHER)',         false),
-    ('reports_to_emp_id',   'Manager\'s Employee ID (blank=top)',  false),
-    ('branch_code',         'Branch code (if multi-branch)',       false),
-    ('whatsapp_no',         'WhatsApp number (defaults to phone)',  false),
-    ('assigned_classes',    'Classes taught (comma-separated)',    false),
-    ('subject_specialty',   'Subject or specialisation',           false),
-    ('is_temp',             'TRUE for temporary staff',            false),
+    ('employee_id *',       'Unique ID — alphanumeric, hyphens ok',         true),
+    ('first_name *',        'Employee first name (max 100)',                 true),
+    ('last_name *',         'Employee last name (max 100)',                  true),
+    ('display_name',        'Display name (defaults to first+last)',         false),
+    ('gender *',            'male / female / other',                         true),
+    ('email *',             'Work email address',                            true),
+    ('phone *',             '10-digit mobile, starts 6–9, or +91…',         true),
+    ('alt_phone',           'Alternate phone (same format)',                 false),
+    ('whatsapp_no',         'WhatsApp (defaults to phone if blank)',         false),
+    ('date_of_birth',       'YYYY-MM-DD, age must be ≥ 18',                 false),
+    ('date_of_joining *',   'YYYY-MM-DD format',                             true),
+    ('org_role_level *',    'Role level 1–10 (1=Principal)',                 true),
+    ('org_role_code',       'Role code e.g. SR_TEACHER',                    false),
+    ('reports_to_emp_id',   'Manager\'s Employee ID (blank = top-level)',   false),
+    ('branch_code',         'Branch code if multi-branch school',           false),
+    ('address_line1',       'House/flat/street (max 255)',                   false),
+    ('address_line2',       'Locality/landmark (max 255)',                   false),
+    ('city',                'City of residence',                             false),
+    ('state',               'Indian state full name (e.g. Uttar Pradesh)',  false),
+    ('country',             'Country (defaults to India)',                   false),
+    ('zip_code',            '6-digit PIN code',                              false),
+    ('qualification',       'Highest qualification e.g. B.Ed (max 100)',    false),
+    ('specialization',      'Subject specialisation (max 100)',              false),
+    ('experience_years',    'Teaching/work experience in years (0–50)',      false),
+    ('assigned_classes',    'Classes taught e.g. 4A,5B (comma-separated)',  false),
+    ('subject_specialty',   'Primary subject specialty',                     false),
+    ('is_temp',             'TRUE for temporary staff (default FALSE)',      false),
   ];
 
   @override
@@ -696,8 +741,15 @@ class _ValidationSummary extends StatelessWidget {
   final int ok;
   final int fail;
   final bool canSubmit;
+  final VoidCallback? onDownloadReport;
 
-  const _ValidationSummary({required this.total, required this.ok, required this.fail, required this.canSubmit});
+  const _ValidationSummary({
+    required this.total,
+    required this.ok,
+    required this.fail,
+    required this.canSubmit,
+    this.onDownloadReport,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -709,29 +761,44 @@ class _ValidationSummary extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.grey200),
       ),
-      child: Row(children: [
-        _SummaryTile(label: 'Total Rows', value: total, color: AppTheme.primary, icon: Icons.table_rows_outlined),
-        const _Divider(),
-        _SummaryTile(label: 'Ready', value: ok, color: AppTheme.statusGreen, icon: Icons.check_circle_outline),
-        const _Divider(),
-        _SummaryTile(label: 'Errors', value: fail, color: AppTheme.error, icon: Icons.cancel_outlined),
-        const _Divider(),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          Icon(
-            canSubmit ? Icons.verified : Icons.error_outline,
-            color: canSubmit ? AppTheme.statusGreen : AppTheme.error,
-            size: 22,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            canSubmit ? 'Ready to submit' : 'Fix errors first',
-            style: GoogleFonts.poppins(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          _SummaryTile(label: 'Total Rows', value: total, color: AppTheme.primary, icon: Icons.table_rows_outlined),
+          const _Divider(),
+          _SummaryTile(label: 'Ready', value: ok, color: AppTheme.statusGreen, icon: Icons.check_circle_outline),
+          const _Divider(),
+          _SummaryTile(label: 'Errors', value: fail, color: AppTheme.error, icon: Icons.cancel_outlined),
+          const _Divider(),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            Icon(
+              canSubmit ? Icons.verified : Icons.error_outline,
               color: canSubmit ? AppTheme.statusGreen : AppTheme.error,
+              size: 22,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              canSubmit ? 'Ready to submit' : 'Fix errors first',
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: canSubmit ? AppTheme.statusGreen : AppTheme.error,
+              ),
+            ),
+          ])),
+        ]),
+        if (onDownloadReport != null) ...[
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: onDownloadReport,
+            icon: const Icon(Icons.download_outlined, size: 16, color: AppTheme.primary),
+            label: Text('Download Validation Report', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.primary)),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppTheme.primary),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
           ),
-        ])),
+        ],
       ]),
     );
   }

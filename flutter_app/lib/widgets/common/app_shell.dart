@@ -112,6 +112,12 @@ const _navItems = <_NavItem>[
     badge: 3,
   ),
   _NavItem(
+    path: '/workflow',
+    icon: Icons.assignment_outlined,
+    activeIcon: Icons.assignment,
+    label: 'Workflows',
+  ),
+  _NavItem(
     path: '/settings',
     icon: Icons.settings_outlined,
     activeIcon: Icons.settings,
@@ -130,31 +136,49 @@ const _navItems = <_NavItem>[
 List<_NavItem> _visibleNavItems(AppUser? user) {
   if (user == null) return _navItems;
   final role = user.role;
+
   // Super admin sees everything
-  if (role == 'super_admin') {
-    return _navItems;
+  if (role == 'super_admin') return _navItems;
+
+  // Build a "My School" item for any user linked to a school
+  final schoolId = user.schoolId ?? user.employee?.schoolId;
+  _NavItem? mySchoolItem;
+  if (schoolId != null && schoolId.isNotEmpty) {
+    mySchoolItem = _NavItem(
+      path:       '/schools/$schoolId',
+      icon:       Icons.school_outlined,
+      activeIcon: Icons.school,
+      label:      'My School',
+    );
   }
-  // School Owners see everything EXCEPT the global "Schools" list
+
+  List<_NavItem> _withMySchool(List<_NavItem> base) {
+    if (mySchoolItem == null) return base;
+    // Insert after Dashboard (index 0)
+    final result = List<_NavItem>.from(base);
+    final insertIdx = result.indexWhere((n) => n.path == '/dashboard') + 1;
+    result.insert(insertIdx < 1 ? 0 : insertIdx, mySchoolItem);
+    return result;
+  }
+
+  // School Owners — everything except global /schools list
   if (role == 'school_owner') {
-    return _navItems
-        .where((n) => n.path != '/schools')
-        .toList();
+    return _withMySchool(_navItems.where((n) => n.path != '/schools').toList());
   }
-  // school/branch admins see everything for their context
+  // school/branch admins see everything
   if (['school_admin', 'branch_admin'].contains(role)) {
     return _navItems;
   }
-  // Principals & VPs see most items
+  // Principals & VPs
   if (role == 'principal' || role == 'vp') {
-    return _navItems
-        .where((n) => n.path != '/schools')
-        .toList();
+    return _withMySchool(_navItems.where((n) => n.path != '/schools').toList());
   }
-  // Head teachers see employees, students, attendance, reports, requests, messaging, settings
+  // Head teachers
   if (role == 'head_teacher') {
-    return _navItems
+    final base = _navItems
         .where((n) => ['/dashboard', '/employees', '/students', '/take-attendance', '/messaging', '/reports', '/requests', '/settings'].contains(n.path))
         .toList();
+    return _withMySchool(base);
   }
   // Parents only see their portal and dashboard
   if (role == 'parent') {
@@ -162,7 +186,7 @@ List<_NavItem> _visibleNavItems(AppUser? user) {
         .where((n) => ['/dashboard', '/parent-portal', '/settings'].contains(n.path))
         .toList();
   }
-  // Teachers only see students, id-templates, attendance, reports, requests, messaging, settings
+  // Teachers
   return _navItems
       .where((n) => ['/dashboard', '/students', '/id-templates', '/take-attendance', '/messaging', '/reports', '/requests', '/settings'].contains(n.path))
       .toList();
@@ -270,6 +294,7 @@ class _DesktopSidebar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authNotifierProvider);
     final user = authState.valueOrNull;
+    final pt   = ref.watch(themeProvider).portalTheme;
     final width = collapsed ? _sidebarCollapsed : _sidebarExpanded;
 
     return AnimatedContainer(
@@ -277,9 +302,13 @@ class _DesktopSidebar extends ConsumerWidget {
       curve: Curves.easeInOut,
       width: width,
       child: Container(
-        decoration: const BoxDecoration(
-          gradient: AppTheme.primaryGradient,
-          boxShadow: [
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [pt.headerColor, pt.menuColor],
+          ),
+          boxShadow: const [
             BoxShadow(
               color: Color(0x44000000),
               blurRadius: 16,
@@ -290,7 +319,7 @@ class _DesktopSidebar extends ConsumerWidget {
         child: Column(
           children: [
             // ── Logo / Brand ──────────────────────────────────
-            _SidebarHeader(collapsed: collapsed, onToggle: onToggle),
+            _SidebarHeader(collapsed: collapsed, onToggle: onToggle, pt: pt),
 
             // ── Nav Items ─────────────────────────────────────
             Expanded(
@@ -305,13 +334,14 @@ class _DesktopSidebar extends ConsumerWidget {
                     isActive:  isActive,
                     collapsed: collapsed,
                     onTap:     () => ctx.go(item.path),
+                    pt:        pt,
                   );
                 },
               ),
             ),
 
             // ── User Footer ───────────────────────────────────
-            _SidebarFooter(user: user, collapsed: collapsed, ref: ref),
+            _SidebarFooter(user: user, collapsed: collapsed, ref: ref, pt: pt),
           ],
         ),
       ),
@@ -323,7 +353,8 @@ class _DesktopSidebar extends ConsumerWidget {
 class _SidebarHeader extends StatelessWidget {
   final bool collapsed;
   final VoidCallback? onToggle;
-  const _SidebarHeader({required this.collapsed, this.onToggle});
+  final PortalTheme pt;
+  const _SidebarHeader({required this.collapsed, required this.pt, this.onToggle});
 
   @override
   Widget build(BuildContext context) {
@@ -342,7 +373,7 @@ class _SidebarHeader extends StatelessWidget {
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.badge, color: AppTheme.primary, size: 22),
+            child: Icon(Icons.badge, color: pt.primaryColor, size: 22),
           ),
           if (!collapsed) ...[
             const SizedBox(width: 10),
@@ -380,16 +411,21 @@ class _SidebarNavTile extends StatelessWidget {
   final bool isActive;
   final bool collapsed;
   final VoidCallback onTap;
+  final PortalTheme pt;
 
   const _SidebarNavTile({
     required this.item,
     required this.isActive,
     required this.collapsed,
     required this.onTap,
+    required this.pt,
   });
 
   @override
   Widget build(BuildContext context) {
+    final activeTextColor = pt.isDark ? pt.primaryColor : pt.primaryColor;
+    final inactiveTextColor = pt.menuTextColor.withOpacity(0.88);
+
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: collapsed ? 8 : 12,
@@ -400,7 +436,7 @@ class _SidebarNavTile extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           decoration: BoxDecoration(
-            color: isActive ? Colors.white : Colors.transparent,
+            color: isActive ? Colors.white.withOpacity(0.92) : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Material(
@@ -417,19 +453,15 @@ class _SidebarNavTile extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    _buildIcon(),
+                    _buildIcon(activeTextColor, inactiveTextColor),
                     if (!collapsed) ...[
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           item.label,
                           style: GoogleFonts.poppins(
-                            color: isActive
-                                ? AppTheme.primary
-                                : Colors.white.withOpacity(0.9),
-                            fontWeight: isActive
-                                ? FontWeight.w600
-                                : FontWeight.w400,
+                            color: isActive ? activeTextColor : inactiveTextColor,
+                            fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
                             fontSize: 13,
                           ),
                         ),
@@ -439,12 +471,12 @@ class _SidebarNavTile extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppTheme.accent,
+                            color: pt.accentColor,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Text(
-                            '${item.badge}',
-                            style: const TextStyle(
+                          child: const Text(
+                            '!',
+                            style: TextStyle(
                               color: Colors.white,
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
@@ -462,9 +494,9 @@ class _SidebarNavTile extends StatelessWidget {
     );
   }
 
-  Widget _buildIcon() {
-    final icon = isActive ? item.activeIcon : item.icon;
-    final color = isActive ? AppTheme.primary : Colors.white.withOpacity(0.9);
+  Widget _buildIcon(Color activeColor, Color inactiveColor) {
+    final icon  = isActive ? item.activeIcon : item.icon;
+    final color = isActive ? activeColor : inactiveColor;
 
     if (item.badge > 0 && !isActive) {
       return badges.Badge(
@@ -472,7 +504,7 @@ class _SidebarNavTile extends StatelessWidget {
           '${item.badge}',
           style: const TextStyle(color: Colors.white, fontSize: 9),
         ),
-        badgeStyle: const badges.BadgeStyle(badgeColor: AppTheme.accent),
+        badgeStyle: badges.BadgeStyle(badgeColor: pt.accentColor),
         child: Icon(icon, color: color, size: 20),
       );
     }
@@ -485,15 +517,18 @@ class _SidebarFooter extends StatelessWidget {
   final AppUser? user;
   final bool collapsed;
   final WidgetRef ref;
+  final PortalTheme pt;
 
   const _SidebarFooter({
     required this.user,
     required this.collapsed,
     required this.ref,
+    required this.pt,
   });
 
   @override
   Widget build(BuildContext context) {
+    final textColor = pt.menuTextColor;
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: collapsed ? 8 : 16,
@@ -504,7 +539,7 @@ class _SidebarFooter extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _buildAvatar(),
+          _buildAvatar(textColor),
           if (!collapsed && user != null) ...[
             const SizedBox(width: 10),
             Expanded(
@@ -515,7 +550,7 @@ class _SidebarFooter extends StatelessWidget {
                   Text(
                     user!.displayName,
                     style: GoogleFonts.poppins(
-                      color: Colors.white,
+                      color: textColor,
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                     ),
@@ -526,13 +561,13 @@ class _SidebarFooter extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 6, vertical: 1),
                     decoration: BoxDecoration(
-                      color: AppTheme.secondary.withOpacity(0.25),
+                      color: pt.accentColor.withOpacity(0.25),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       _formatRole(user!.role),
                       style: GoogleFonts.poppins(
-                        color: AppTheme.secondary,
+                        color: pt.accentColor,
                         fontSize: 10,
                         fontWeight: FontWeight.w500,
                       ),
@@ -543,7 +578,7 @@ class _SidebarFooter extends StatelessWidget {
             ),
             IconButton(
               onPressed: () => ref.read(authNotifierProvider.notifier).signOut(),
-              icon: const Icon(Icons.logout, color: Colors.white54, size: 18),
+              icon: Icon(Icons.logout, color: textColor.withOpacity(0.6), size: 18),
               tooltip: 'Sign out',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
@@ -554,7 +589,7 @@ class _SidebarFooter extends StatelessWidget {
     );
   }
 
-  Widget _buildAvatar() {
+  Widget _buildAvatar(Color textColor) {
     if (user?.photoUrl != null && user!.photoUrl!.isNotEmpty) {
       return CircleAvatar(
         radius: 18,
@@ -563,11 +598,11 @@ class _SidebarFooter extends StatelessWidget {
     }
     return CircleAvatar(
       radius: 18,
-      backgroundColor: AppTheme.secondary.withOpacity(0.3),
+      backgroundColor: pt.accentColor.withOpacity(0.3),
       child: Text(
         user != null ? user!.displayName[0].toUpperCase() : 'U',
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: textColor,
           fontWeight: FontWeight.w700,
           fontSize: 14,
         ),
@@ -819,10 +854,18 @@ class _MobileDrawer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authNotifierProvider);
     final user      = authState.valueOrNull;
+    final pt        = ref.watch(themeProvider).portalTheme;
+    final textColor = pt.menuTextColor;
 
     return Drawer(
       child: Container(
-        decoration: const BoxDecoration(gradient: AppTheme.primaryGradient),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [pt.headerColor, pt.menuColor],
+          ),
+        ),
         child: SafeArea(
           child: Column(
             children: [
@@ -840,8 +883,7 @@ class _MobileDrawer extends ConsumerWidget {
                               user != null
                                   ? user.displayName[0].toUpperCase()
                                   : 'U',
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 18),
+                              style: TextStyle(color: textColor, fontSize: 18),
                             ),
                       backgroundImage: user?.photoUrl != null
                           ? NetworkImage(user!.photoUrl!)
@@ -855,7 +897,7 @@ class _MobileDrawer extends ConsumerWidget {
                           Text(
                             user?.displayName ?? 'User',
                             style: GoogleFonts.poppins(
-                              color: Colors.white,
+                              color: textColor,
                               fontWeight: FontWeight.w600,
                               fontSize: 14,
                             ),
@@ -863,7 +905,7 @@ class _MobileDrawer extends ConsumerWidget {
                           Text(
                             user?.role ?? '',
                             style: GoogleFonts.poppins(
-                              color: Colors.white60,
+                              color: textColor.withOpacity(0.65),
                               fontSize: 11,
                             ),
                           ),
@@ -873,7 +915,7 @@ class _MobileDrawer extends ConsumerWidget {
                   ],
                 ),
               ),
-              const Divider(color: Colors.white24, height: 1),
+              Divider(color: textColor.withOpacity(0.2), height: 1),
               // Nav items
               Expanded(
                 child: ListView.builder(
@@ -886,6 +928,7 @@ class _MobileDrawer extends ConsumerWidget {
                       item:      item,
                       isActive:  isActive,
                       collapsed: false,
+                      pt:        pt,
                       onTap: () {
                         Navigator.of(context).pop();
                         ctx.go(item.path);
@@ -894,12 +937,12 @@ class _MobileDrawer extends ConsumerWidget {
                   },
                 ),
               ),
-              const Divider(color: Colors.white24, height: 1),
+              Divider(color: textColor.withOpacity(0.2), height: 1),
               ListTile(
-                leading: const Icon(Icons.logout, color: Colors.white70),
+                leading: Icon(Icons.logout, color: textColor.withOpacity(0.7)),
                 title: Text('Sign out',
                     style: GoogleFonts.poppins(
-                        color: Colors.white70, fontSize: 13)),
+                        color: textColor.withOpacity(0.7), fontSize: 13)),
                 onTap: () {
                   Navigator.of(context).pop();
                   ref.read(authNotifierProvider.notifier).signOut();

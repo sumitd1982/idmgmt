@@ -14,13 +14,16 @@ import 'screens/auth/login_screen.dart';
 import 'screens/dashboard/dashboard_screen.dart';
 import 'screens/school/school_list_screen.dart';
 import 'screens/school/school_form_screen.dart';
+import 'screens/school/branch_setup_screen.dart';
 import 'screens/branch/branch_screen.dart';
 import 'screens/org/org_structure_screen.dart';
 import 'screens/employee/employee_screen.dart';
 import 'screens/employee/employee_form_screen.dart';
+import 'screens/employee/employee_bulk_upload_history_screen.dart';
 import 'screens/employee/employee_bulk_upload_screen.dart';
 import 'screens/student/student_screen.dart';
 import 'screens/student/student_form_screen.dart';
+import 'screens/student/student_bulk_upload_screen.dart';
 import 'screens/id_card/id_card_designer.dart';
 import 'screens/id_card/id_template_list_screen.dart';
 import 'screens/id_card/id_template_designer_screen.dart';
@@ -28,6 +31,7 @@ import 'screens/parent/parent_review_screen.dart';
 import 'screens/parent/parent_portal_screen.dart';
 import 'screens/reports/reports_screen.dart';
 import 'screens/requests/requests_screen.dart';
+import 'screens/requests/workflow_requests_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/org/roles_screen.dart';
 import 'screens/attendance/attendance_config_screen.dart';
@@ -35,6 +39,7 @@ import 'screens/attendance/take_attendance_screen.dart';
 import 'screens/messaging/inbox_screen.dart';
 import 'screens/messaging/chat_screen.dart';
 import 'screens/settings/theme_settings_screen.dart';
+import 'screens/classes/class_section_screen.dart';
 import 'providers/theme_provider.dart';
 import 'widgets/common/app_shell.dart';
 
@@ -76,6 +81,8 @@ class _RouterNotifier extends ChangeNotifier {
     }
 
     if (isAuthPath || isLanding) {
+      final user = _authState.value;
+      if (user != null && user.role == 'parent') return '/parent-portal';
       return '/dashboard';
     }
 
@@ -126,13 +133,36 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/schools',         builder: (_, __) => const SchoolListScreen()),
           GoRoute(path: '/schools/new',     builder: (_, __) => const SchoolFormScreen()),
           GoRoute(
+            path: '/schools/setup-branch',
+            builder: (_, s) {
+              final extra = (s.extra as Map<String, String>?) ?? {};
+              return BranchSetupScreen(
+                schoolId:      extra['schoolId']      ?? '',
+                schoolName:    extra['schoolName']    ?? '',
+                schoolCode:    extra['schoolCode']    ?? '',
+                schoolPhone:   extra['schoolPhone']   ?? '',
+                schoolEmail:   extra['schoolEmail']   ?? '',
+                schoolAddress: extra['schoolAddress'] ?? '',
+                schoolCity:    extra['schoolCity']    ?? '',
+              );
+            },
+          ),
+          GoRoute(
             path: '/schools/:id',
             builder: (_, s) => SchoolFormScreen(schoolId: s.pathParameters['id']),
           ),
           GoRoute(path: '/branches',        builder: (_, __) => const BranchScreen()),
+          GoRoute(
+            path: '/branches/class-sections',
+            builder: (_, s) => ClassSectionScreen(
+              branchId:   s.uri.queryParameters['branchId']   ?? '',
+              branchName: s.uri.queryParameters['branchName'] ?? 'Branch',
+            ),
+          ),
           GoRoute(path: '/org-structure',   builder: (_, __) => const OrgStructureScreen()),
           GoRoute(path: '/employees',            builder: (_, __) => const EmployeeScreen()),
           GoRoute(path: '/employees/bulk-upload', builder: (_, __) => const EmployeeBulkUploadScreen()),
+          GoRoute(path: '/employees/bulk-upload/history', builder: (_, __) => const EmployeeBulkUploadHistoryScreen()),
           GoRoute(
             path: '/employees/new',
             builder: (_, s) => EmployeeFormScreen(
@@ -145,8 +175,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/employees/:id',
             builder: (_, s) => EmployeeFormScreen(employeeId: s.pathParameters['id']),
           ),
-          GoRoute(path: '/students',        builder: (_, __) => const StudentScreen()),
-          GoRoute(path: '/students/new',    builder: (_, __) => const StudentFormScreen()),
+          GoRoute(path: '/students',                       builder: (_, __) => const StudentScreen()),
+          GoRoute(path: '/students/bulk-upload',           builder: (_, __) => const StudentBulkUploadScreen()),
+          GoRoute(path: '/students/bulk-upload/history',   builder: (_, __) => const StudentBulkUploadHistoryScreen()),
+          GoRoute(path: '/students/new',                   builder: (_, __) => const StudentFormScreen()),
           GoRoute(
             path: '/students/:id',
             builder: (_, s) => StudentFormScreen(studentId: s.pathParameters['id']),
@@ -164,7 +196,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, s) => IdTemplateDesignerScreen(templateId: s.pathParameters['id']),
           ),
           GoRoute(path: '/reports',         builder: (_, __) => const ReportsScreen()),
-          GoRoute(path: '/requests',        builder: (_, __) => const RequestsScreen()),
+          GoRoute(path: '/requests',         builder: (_, __) => const RequestsScreen()),
+          GoRoute(path: '/workflow',         builder: (_, __) => const WorkflowRequestsScreen()),
           GoRoute(path: '/roles-settings',  builder: (_, __) => const RolesSettingsScreen()),
           GoRoute(path: '/attendance-config', builder: (_, __) => const AttendanceConfigScreen()),
           GoRoute(path: '/take-attendance', builder: (_, __) => const TakeAttendanceScreen()),

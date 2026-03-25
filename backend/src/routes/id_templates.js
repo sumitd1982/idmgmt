@@ -82,9 +82,9 @@ router.get('/', authenticate, async (req, res, next) => {
     let params = [];
 
     // Security: Only super_admin can override the school context
-    const effectiveSchoolId = req.user.role === 'super_admin' 
-      ? (school_id || req.employee?.school_id) 
-      : req.employee?.school_id;
+    const effectiveSchoolId = req.user.role === 'super_admin'
+      ? (school_id || req.employee?.school_id)
+      : (req.employee?.school_id || (req.user.role === 'school_owner' ? req.user.school_id : null));
 
     if (effectiveSchoolId) { where.push('t.school_id = ?');    params.push(effectiveSchoolId); }
     if (branch_id)         { where.push('t.branch_id = ?');    params.push(branch_id); }
@@ -164,9 +164,9 @@ router.post('/',
     const { school_id, branch_id, name, template_type, card_width_mm, card_height_mm, elements = [] } = req.body;
 
     // Security: Only super_admin can specify a school_id for other schools
-    const effectiveSchoolId = req.user.role === 'super_admin' 
-      ? (school_id || req.employee?.school_id) 
-      : req.employee?.school_id;
+    const effectiveSchoolId = req.user.role === 'super_admin'
+      ? (school_id || req.employee?.school_id)
+      : (req.employee?.school_id || (req.user.role === 'school_owner' ? req.user.school_id : null));
 
     if (!name || !effectiveSchoolId) {
       return res.status(400).json({ success: false, message: 'name and school_id are required' });

@@ -15,7 +15,7 @@ router.get('/modules', authenticate, async (req, res, next) => {
     if (!schoolId) return res.status(403).json({ success: false, message: 'No school context' });
 
     const modules = await query(
-      `SELECT id, name, type, is_active, created_at
+      `SELECT id, name, type, is_active, visible_to_parents, created_at
        FROM attendance_modules
        WHERE school_id = ?
        ORDER BY type, name`,
@@ -58,6 +58,27 @@ router.patch('/modules/:id/toggle', authenticate, requireRole('super_admin', 'sc
       [is_active, req.params.id, schoolId]
     );
     res.json({ success: true, message: 'Module updated' });
+  } catch (err) { next(err); }
+});
+
+// PATCH /attendance/modules/:id/settings (Update name, visible_to_parents, etc.)
+router.patch('/modules/:id/settings', authenticate, requireRole('super_admin', 'school_owner', 'principal', 'vp'), async (req, res, next) => {
+  try {
+    const schoolId = req.employee?.school_id || req.user.school_id || req.body.school_id;
+    const { visible_to_parents, name } = req.body;
+
+    const updates = [];
+    const params  = [];
+    if (visible_to_parents !== undefined) { updates.push('visible_to_parents = ?'); params.push(visible_to_parents ? 1 : 0); }
+    if (name !== undefined)               { updates.push('name = ?');               params.push(name); }
+    if (!updates.length) return res.status(400).json({ success: false, message: 'Nothing to update' });
+
+    params.push(req.params.id, schoolId);
+    await query(
+      `UPDATE attendance_modules SET ${updates.join(', ')} WHERE id = ? AND school_id = ?`,
+      params
+    );
+    res.json({ success: true, message: 'Module settings updated' });
   } catch (err) { next(err); }
 });
 
@@ -155,6 +176,52 @@ router.get('/history', authenticate, async (req, res, next) => {
     );
 
     res.json({ success: true, data: history });
+  } catch (err) { next(err); }
+});
+
+// ── MANAGEMENT SUMMARY ────────────────────────────────────────
+
+// GET /attendance/summary (School-wide % by module for a date range)
+router.get('/summary', authenticate, async (req, res, next) => {
+  try {
+    const schoolId  = req.employee?.school_id || req.user.school_id || req.query.school_id;
+    const { from_date, to_date, class_name, section, module_id } = req.query;
+    if (!schoolId) return res.status(403).json({ success: false, message: 'No school context' });
+
+    const fromDate = from_date || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+    const toDate   = to_date   || new Date().toISOString().split('T')[0];
+
+    let where  = ['am.school_id = ?', 'ar.date BETWEEN ? AND ?'];
+    let params = [schoolId, fromDate, toDate];
+
+    if (module_id)  { where.push('am.id = ?');          params.push(module_id); }
+    if (class_name) { where.push('s.class_name = ?');   params.push(class_name); }
+    if (section)    { where.push('s.section = ?');      params.push(section); }
+
+    const rows = await query(
+      `SELECT am.id AS module_id, am.name AS module_name, am.type,
+              s.class_name, s.section,
+              COUNT(*) AS total_records,
+              SUM(CASE WHEN ar.status='present' THEN 1 ELSE 0 END) AS present_count,
+              SUM(CASE WHEN ar.status='absent'  THEN 1 ELSE 0 END) AS absent_count,
+              SUM(CASE WHEN ar.status='late'    THEN 1 ELSE 0 END) AS late_count
+       FROM attendance_records ar
+       JOIN attendance_modules am ON am.id = ar.module_id
+       JOIN students s ON s.id = ar.student_id
+       WHERE ${where.join(' AND ')}
+       GROUP BY am.id, am.name, am.type, s.class_name, s.section
+       ORDER BY am.type, am.name, s.class_name, s.section`,
+      params
+    );
+
+    // Add percentage
+    const data = rows.map(r => ({
+      ...r,
+      percentage: r.total_records > 0
+        ? Math.round((r.present_count / r.total_records) * 100) : null,
+    }));
+
+    res.json({ success: true, data, from_date: fromDate, to_date: toDate });
   } catch (err) { next(err); }
 });
 

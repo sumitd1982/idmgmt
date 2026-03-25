@@ -130,6 +130,27 @@ class AuthService {
     }
   }
 
+  // ── Update user profile (name, email) ───────────────────────
+  Future<AppUser?> updateProfile({
+    required String firstName,
+    String? middleName,
+    required String lastName,
+    String? email,
+  }) async {
+    try {
+      await _api.put('/auth/profile', body: {
+        'first_name':  firstName,
+        if (middleName != null && middleName.isNotEmpty) 'middle_name': middleName,
+        'last_name':   lastName,
+        if (email != null && email.isNotEmpty) 'email': email,
+      });
+      return getCurrentUser();
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map ? e.response!.data['message'] : e.message;
+      throw Exception(msg ?? 'Failed to update profile');
+    }
+  }
+
   Future<void> signOut() async {
     await clearToken();
     if (_auth.currentUser != null) {
