@@ -12,6 +12,7 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'package:responsive_framework/responsive_framework.dart';
 import '../../config/theme.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/customization_provider.dart';
 import '../../services/api_service.dart';
 import '../../models/user_model.dart';
 import 'dashboard_overview.dart';
@@ -251,6 +252,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       });
     }
 
+    // Watch dashboard widget config for this user's role
+    final schoolId = user?.schoolId ?? user?.employee?.schoolId;
+    final widgetConfig = user != null
+        ? ref.watch(dashboardConfigProvider(dashboardConfigKey(user.role, schoolId)))
+        : const AsyncData<List<WidgetConfig>>([]);
+
+    final widgetConfigs = widgetConfig.when(
+      data: (cfg) => cfg,
+      loading: () => <WidgetConfig>[],
+      error: (_, __) => <WidgetConfig>[],
+    );
+
     return Scaffold(
       backgroundColor: AppTheme.grey50,
       body: RefreshIndicator(
@@ -260,74 +273,104 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ref.invalidate(_classChartProvider);
           ref.invalidate(_activeWorkflowRequestsProvider);
           invalidateDashboardOverview(ref);
+          ref.invalidate(dashboardConfigProvider);
         },
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Welcome header
-              _WelcomeHeader(user: user),
-              const SizedBox(height: 24),
-
-              // Stats row
-              _StatsRow(),
-              const SizedBox(height: 24),
-
-              // Onboarding Guide (if no schools found) — hidden for parents
-              if (user?.role != 'parent') ...[
-                _OnboardingGuide(),
-                const SizedBox(height: 24),
-              ],
-
-              // Main content
-              isWide
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: Column(
-                            children: [
-                              if (user?.role != 'parent') ...[
-                                _QuickActions(),
-                                const SizedBox(height: 20),
-                              ],
-                              _RecentRequestsTable(),
-                              const SizedBox(height: 20),
-                              _ClassChartCard(),
-                              const SizedBox(height: 20),
-                              DashboardOverviewComponent(),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 20),
-                        SizedBox(
-                          width: 300,
-                          child: _NotificationFeed(),
-                        ),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        if (user?.role != 'parent') ...[
-                          _QuickActions(),
-                          const SizedBox(height: 20),
-                        ],
-                        _RecentRequestsTable(),
-                        const SizedBox(height: 20),
-                        _ClassChartCard(),
-                        const SizedBox(height: 20),
-                        DashboardOverviewComponent(),
-                        const SizedBox(height: 20),
-                        _NotificationFeed(),
-                      ],
-                    ),
-            ],
+            children: _buildDashboardWidgets(widgetConfigs, user, isWide),
           ),
         ),
       ),
     );
+  }
+
+  // ── Config-driven widget builder ────────────────────────────
+  // Maps widget keys to widget builders, then renders in config order.
+  // Falls back to default layout when no config is present.
+  List<Widget> _buildDashboardWidgets(
+      List<WidgetConfig> configs, dynamic user, bool isWide) {
+    // Default order (matches existing hardcoded layout)
+    const defaultOrder = [
+      'welcome_header', 'stats_row', 'onboarding_guide',
+      'quick_actions', 'recent_requests', 'class_chart', 'overview', 'notification_feed',
+    ];
+
+    final List<WidgetConfig> ordered = configs.isNotEmpty
+        ? (configs.where((w) => w.visible).toList()
+            ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder)))
+        : defaultOrder.asMap().entries.map((e) => WidgetConfig(
+              key: e.value,
+              label: e.value,
+              visible: true,
+              sortOrder: e.key,
+              colSpan: e.value == 'notification_feed' ? 1 : 2,
+            )).toList();
+
+    Widget? _build(String key) {
+      switch (key) {
+        case 'welcome_header':  return _WelcomeHeader(user: user);
+        case 'stats_row':       return _StatsRow();
+        case 'onboarding_guide':
+          return (user?.role != 'parent') ? _OnboardingGuide() : null;
+        case 'quick_actions':
+          return (user?.role != 'parent') ? _QuickActions() : null;
+        case 'recent_requests': return _RecentRequestsTable();
+        case 'class_chart':     return _ClassChartCard();
+        case 'overview':        return DashboardOverviewComponent();
+        case 'notification_feed':
+          return isWide
+              ? SizedBox(width: 300, child: _NotificationFeed())
+              : _NotificationFeed();
+        default: return null;
+      }
+    }
+
+    final result = <Widget>[];
+    int i = 0;
+    while (i < ordered.length) {
+      final cfg = ordered[i];
+      // On narrow screens everything is full-width
+      if (!isWide || cfg.colSpan != 1) {
+        final w = _build(cfg.key);
+        if (w != null) {
+          result.add(w);
+          result.add(const SizedBox(height: 24));
+        }
+        i++;
+      } else {
+        // Half-width: pair this with the next half-width widget
+        final nextCfg = (i + 1 < ordered.length && ordered[i + 1].colSpan == 1)
+            ? ordered[i + 1] : null;
+        final w1 = _build(cfg.key);
+        final w2 = nextCfg != null ? _build(nextCfg.key) : null;
+
+        if (w1 != null) {
+          if (w2 != null) {
+            result.add(Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: w1),
+                const SizedBox(width: 20),
+                Expanded(child: w2),
+              ],
+            ));
+            i += 2;
+          } else {
+            result.add(w1);
+            i++;
+          }
+          result.add(const SizedBox(height: 24));
+        } else {
+          i++;
+        }
+      }
+    }
+
+    // Remove trailing spacer
+    if (result.isNotEmpty && result.last is SizedBox) result.removeLast();
+    return result;
   }
 }
 

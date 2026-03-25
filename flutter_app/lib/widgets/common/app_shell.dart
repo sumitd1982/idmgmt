@@ -12,6 +12,7 @@ import '../../config/theme.dart';
 import '../../config/constants.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/customization_provider.dart';
 import '../../models/user_model.dart';
 
 // ── Nav Item Model ────────────────────────────────────────────
@@ -193,6 +194,35 @@ List<_NavItem> _visibleNavItems(AppUser? user) {
 }
 
 
+// ── Convert server config → _NavItem list ────────────────────
+// Filters and reorders _navItems based on the saved config.
+// Falls back to _visibleNavItems(user) when config is empty.
+List<_NavItem> _applyMenuConfig(List<NavItemConfig> config, AppUser? user) {
+  if (config.isEmpty) return _visibleNavItems(user);
+  final visible = config.where((c) => c.visible).toList()
+    ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+  return visible.map((cfg) {
+    try {
+      return _navItems.firstWhere((n) => n.path == cfg.path);
+    } catch (_) {
+      return _NavItem(path: cfg.path, icon: Icons.circle_outlined,
+          activeIcon: Icons.circle, label: cfg.label);
+    }
+  }).toList();
+}
+
+// Watch the menu config provider and resolve to nav items
+List<_NavItem> _watchNavItems(WidgetRef ref, AppUser? user) {
+  if (user == null) return _navItems;
+  final schoolId = user.schoolId ?? user.employee?.schoolId;
+  final async = ref.watch(menuConfigProvider(menuConfigKey(user.role, schoolId)));
+  return async.when(
+    data: (cfg) => _applyMenuConfig(cfg, user),
+    loading: ()   => _visibleNavItems(user),
+    error: (_, __) => _visibleNavItems(user),
+  );
+}
+
 // ── Sidebar Width ─────────────────────────────────────────────
 const double _sidebarExpanded  = 240.0;
 const double _sidebarCollapsed = 64.0;
@@ -323,21 +353,24 @@ class _DesktopSidebar extends ConsumerWidget {
 
             // ── Nav Items ─────────────────────────────────────
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: _visibleNavItems(user).length,
-                itemBuilder: (ctx, i) {
-                  final item    = _visibleNavItems(user)[i];
-                  final isActive = location.startsWith(item.path);
-                  return _SidebarNavTile(
-                    item:      item,
-                    isActive:  isActive,
-                    collapsed: collapsed,
-                    onTap:     () => ctx.go(item.path),
-                    pt:        pt,
-                  );
-                },
-              ),
+              child: Builder(builder: (ctx) {
+                final navItems = _watchNavItems(ref, user);
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: navItems.length,
+                  itemBuilder: (ctx, i) {
+                    final item    = navItems[i];
+                    final isActive = location.startsWith(item.path);
+                    return _SidebarNavTile(
+                      item:      item,
+                      isActive:  isActive,
+                      collapsed: collapsed,
+                      onTap:     () => ctx.go(item.path),
+                      pt:        pt,
+                    );
+                  },
+                );
+              }),
             ),
 
             // ── User Footer ───────────────────────────────────
@@ -918,24 +951,27 @@ class _MobileDrawer extends ConsumerWidget {
               Divider(color: textColor.withOpacity(0.2), height: 1),
               // Nav items
               Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: _visibleNavItems(user).length,
-                  itemBuilder: (ctx, i) {
-                    final item     = _visibleNavItems(user)[i];
-                    final isActive = location.startsWith(item.path);
-                    return _SidebarNavTile(
-                      item:      item,
-                      isActive:  isActive,
-                      collapsed: false,
-                      pt:        pt,
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        ctx.go(item.path);
-                      },
-                    );
-                  },
-                ),
+                child: Builder(builder: (ctx) {
+                  final navItems = _watchNavItems(ref, user);
+                  return ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: navItems.length,
+                    itemBuilder: (ctx, i) {
+                      final item     = navItems[i];
+                      final isActive = location.startsWith(item.path);
+                      return _SidebarNavTile(
+                        item:      item,
+                        isActive:  isActive,
+                        collapsed: false,
+                        pt:        pt,
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          ctx.go(item.path);
+                        },
+                      );
+                    },
+                  );
+                }),
               ),
               Divider(color: textColor.withOpacity(0.2), height: 1),
               ListTile(
@@ -964,7 +1000,7 @@ class _TopNavShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authNotifierProvider).valueOrNull;
-    final navItems = _visibleNavItems(user);
+    final navItems = _watchNavItems(ref, user);
 
     return Scaffold(
       backgroundColor: AppTheme.grey50,

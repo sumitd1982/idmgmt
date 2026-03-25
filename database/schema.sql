@@ -691,4 +691,51 @@ CREATE TABLE IF NOT EXISTS invites (
     UNIQUE KEY uq_invite_phone_school (school_id, phone)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ── Customization: Menu Config ───────────────────────────────
+CREATE TABLE IF NOT EXISTS menu_config (
+  id          VARCHAR(36)  NOT NULL,
+  school_id   VARCHAR(36)  NULL COMMENT 'NULL = global default (superadmin only)',
+  role        VARCHAR(50)  NOT NULL,
+  items       JSON         NOT NULL COMMENT '[{key, label, path, visible, sort_order}]',
+  _scope_key  VARCHAR(36)  GENERATED ALWAYS AS (IFNULL(school_id, '__global__')) STORED,
+  updated_by  VARCHAR(36)  NOT NULL,
+  updated_at  DATETIME     NOT NULL DEFAULT NOW() ON UPDATE NOW(),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_menu_config (_scope_key, role),
+  FOREIGN KEY (updated_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Customization: Dashboard Widget Config ───────────────────
+CREATE TABLE IF NOT EXISTS dashboard_widget_config (
+  id          VARCHAR(36)  NOT NULL,
+  school_id   VARCHAR(36)  NULL COMMENT 'NULL = global default (superadmin only)',
+  role        VARCHAR(50)  NOT NULL,
+  widgets     JSON         NOT NULL COMMENT '[{key, label, visible, sort_order, col_span}]',
+  _scope_key  VARCHAR(36)  GENERATED ALWAYS AS (IFNULL(school_id, '__global__')) STORED,
+  updated_by  VARCHAR(36)  NOT NULL,
+  updated_at  DATETIME     NOT NULL DEFAULT NOW() ON UPDATE NOW(),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_dashboard_config (_scope_key, role),
+  FOREIGN KEY (updated_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ── Customization: Review Screen Templates ───────────────────
+CREATE TABLE IF NOT EXISTS review_screen_templates (
+  id           VARCHAR(36)                             NOT NULL,
+  school_id    VARCHAR(36)                             NULL COMMENT 'NULL = system default',
+  entity_type  ENUM('student','teacher')               NOT NULL,
+  name         VARCHAR(255)                            NOT NULL,
+  description  TEXT                                    NULL,
+  layout_style ENUM('side_by_side','stacked','card')   NOT NULL DEFAULT 'side_by_side',
+  sections     JSON                                    NOT NULL,
+  is_default   TINYINT(1)                              NOT NULL DEFAULT 0,
+  is_active    TINYINT(1)                              NOT NULL DEFAULT 1,
+  created_by   VARCHAR(36)                             NULL,
+  updated_by   VARCHAR(36)                             NULL,
+  created_at   DATETIME                                NOT NULL DEFAULT NOW(),
+  updated_at   DATETIME                                NOT NULL DEFAULT NOW() ON UPDATE NOW(),
+  PRIMARY KEY (id),
+  FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

@@ -39,6 +39,10 @@ import 'screens/attendance/take_attendance_screen.dart';
 import 'screens/messaging/inbox_screen.dart';
 import 'screens/messaging/chat_screen.dart';
 import 'screens/settings/theme_settings_screen.dart';
+import 'screens/settings/settings_screen.dart';
+import 'screens/settings/menu_config_screen.dart';
+import 'screens/settings/dashboard_config_screen.dart';
+import 'screens/settings/review_templates_screen.dart';
 import 'screens/classes/class_section_screen.dart';
 import 'providers/theme_provider.dart';
 import 'widgets/common/app_shell.dart';
@@ -206,7 +210,16 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/messaging/:id',
             builder: (_, s) => ChatScreen(conversationId: s.pathParameters['id']!),
           ),
-          GoRoute(path: '/settings',        builder: (_, __) => const ThemeSettingsScreen()),
+          GoRoute(path: '/settings',         builder: (_, __) => const SettingsScreen()),
+          GoRoute(path: '/settings/theme',   builder: (_, __) => const ThemeSettingsScreen()),
+          GoRoute(path: '/settings/menu-layout',
+            builder: (_, __) => const MenuConfigScreen()),
+          GoRoute(path: '/settings/dashboard-widgets',
+            builder: (_, __) => const DashboardConfigScreen()),
+          GoRoute(path: '/settings/review-templates',
+            builder: (_, state) => ReviewTemplatesScreen(
+              entityType: state.uri.queryParameters['type'] ?? 'student',
+            )),
         ],
       ),
     ],

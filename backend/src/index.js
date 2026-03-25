@@ -34,8 +34,9 @@ const messagingRoutes    = require('./routes/messaging');
 const dashboardRoutes    = require('./routes/dashboard');
 const userRoutes        = require('./routes/users');
 const settingsRoutes    = require('./routes/settings');
-const workflowRoutes    = require('./routes/workflow');
-const classRoutes       = require('./routes/classes');
+const workflowRoutes        = require('./routes/workflow');
+const classRoutes           = require('./routes/classes');
+const customizationRoutes   = require('./routes/customization');
 
 const app    = express();
 const server = http.createServer(app);
@@ -127,8 +128,9 @@ app.use(`${base}/messaging`,     apiLimiter,  messagingRoutes);
 app.use(`${base}/dashboard`,     apiLimiter,  dashboardRoutes);
 app.use(`${base}/users`,         apiLimiter,  userRoutes);
 app.use(`${base}/settings`,      apiLimiter,  settingsRoutes);
-app.use(`${base}/workflow`,      apiLimiter,  workflowRoutes);
-app.use(`${base}/classes`,       apiLimiter,  classRoutes);
+app.use(`${base}/workflow`,        apiLimiter,  workflowRoutes);
+app.use(`${base}/classes`,         apiLimiter,  classRoutes);
+app.use(`${base}/customization`,   apiLimiter,  customizationRoutes);
 
 // ─── Error Handler ───────────────────────────────────────────
 app.use((err, req, res, next) => {
