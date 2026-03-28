@@ -212,6 +212,12 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "cupertino_icons",
+      "rootUri": "file:///home/ubuntu/.pub-cache/hosted/pub.dev/cupertino_icons-1.0.8",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
+    },
+    {
       "name": "custom_lint_core",
       "rootUri": "file:///home/ubuntu/.pub-cache/hosted/pub.dev/custom_lint_core-0.7.0",
       "packageUri": "lib/",
@@ -1292,7 +1298,7 @@
       "languageVersion": "3.3"
     }
   ],
-  "generated": "2026-03-20T15:58:10.089221Z",
+  "generated": "2026-03-26T21:55:56.534059Z",
   "generator": "pub",
   "generatorVersion": "3.5.0",
   "flutterRoot": "file:///opt/flutter",

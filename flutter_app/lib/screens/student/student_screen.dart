@@ -196,52 +196,41 @@ class _StudentScreenState extends ConsumerState<StudentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final filter  = ref.watch(_studentFilterProvider);
+    final filter   = ref.watch(_studentFilterProvider);
     final students = ref.watch(_studentsProvider(filter));
     final selected = ref.watch(_selectedStudentsProvider);
 
     return Scaffold(
-      backgroundColor: AppTheme.grey50,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.go('/students/new'),
         icon:  const Icon(Icons.person_add),
         label: const Text('Add Student'),
       ).animate().scale(delay: 300.ms),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Filter toolbar
-            _FilterToolbar(filter: filter, searchCtrl: _searchCtrl),
-            const SizedBox(height: 12),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Toolbar
+          _FilterToolbar(filter: filter, searchCtrl: _searchCtrl),
 
-            // Status chips
-            _StatusChips(filter: filter),
-            const SizedBox(height: 12),
-
-            // Bulk action bar
-            if (selected.isNotEmpty)
-              _BulkActionBar(selected: selected, students: students.valueOrNull ?? []),
-
-            const SizedBox(height: 4),
-
-            // Table
-            Expanded(
-              child: Card(
-                margin: EdgeInsets.zero,
-                child: students.when(
-                  loading: () => const Center(child: CircularProgressIndicator()),
-                  error:   (e, _) => Center(child: Text('Error: $e')),
-                  data:    (list) => _StudentDataTable(
-                    students: list,
-                    selected: selected,
+          // Table area
+          Expanded(
+            child: students.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error:   (e, _) => Center(child: Text('Error: $e')),
+              data:    (list) => Column(
+                children: [
+                  _StatsBar(total: list.length, selected: selected.length),
+                  if (selected.isNotEmpty)
+                    _BulkActionBar(selected: selected, students: list),
+                  Expanded(
+                    child: _StudentDataTable(students: list, selected: selected),
                   ),
-                ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -255,10 +244,10 @@ class _FilterToolbar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentUser  = ref.watch(authNotifierProvider).valueOrNull;
-    final schoolId     = currentUser?.schoolId ?? currentUser?.employee?.schoolId;
-    final branches     = ref.watch(branchesProvider(schoolId)).valueOrNull ?? [];
-    final classes      = ref.watch(_schoolClassesProvider(schoolId)).valueOrNull ?? [];
+    final currentUser = ref.watch(authNotifierProvider).valueOrNull;
+    final schoolId    = currentUser?.schoolId ?? currentUser?.employee?.schoolId;
+    final branches    = ref.watch(branchesProvider(schoolId)).valueOrNull ?? [];
+    final classes     = ref.watch(_schoolClassesProvider(schoolId)).valueOrNull ?? [];
 
     // Unique class names sorted
     final classNames = classes
@@ -280,45 +269,66 @@ class _FilterToolbar extends ConsumerWidget {
     }
     final sectionList = sections.toList()..sort();
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            // Branch
-            SizedBox(
-              width: 160,
-              child: DropdownButtonFormField<String>(
-                value: filter.branchId,
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: AppTheme.grey200)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          // Branch
+          SizedBox(
+            width: 150,
+            height: 36,
+            child: DropdownButtonFormField<String>(
+              value: filter.branchId,
+              isDense: true,
+              hint: Text('All Branches', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500)),
+              decoration: InputDecoration(
                 isDense: true,
-                hint: Text('All Branches', style: GoogleFonts.poppins(fontSize: 12)),
-                decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
-                items: [
-                  DropdownMenuItem<String>(
-                    value: null,
-                    child: Text('All Branches', style: GoogleFonts.poppins(fontSize: 12)),
-                  ),
-                  ...branches.map((b) => DropdownMenuItem<String>(
-                    value: b['id'] as String?,
-                    child: Text(b['name'] as String? ?? '', style: GoogleFonts.poppins(fontSize: 12), overflow: TextOverflow.ellipsis),
-                  )),
-                ],
-                onChanged: (v) {
-                  final f = ref.read(_studentFilterProvider);
-                  ref.read(_studentFilterProvider.notifier).state = v == null
-                      ? f.copyWith(clearBranchId: true, page: 1)
-                      : f.copyWith(branchId: v, page: 1);
-                },
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.primary)),
+                filled: true, fillColor: AppTheme.grey50,
               ),
+              items: [
+                DropdownMenuItem<String>(value: null, child: Text('All Branches', style: GoogleFonts.poppins(fontSize: 12))),
+                ...branches.map((b) => DropdownMenuItem<String>(
+                  value: b['id'] as String?,
+                  child: Text(b['name'] as String? ?? '', style: GoogleFonts.poppins(fontSize: 12), overflow: TextOverflow.ellipsis),
+                )),
+              ],
+              onChanged: (v) {
+                final f = ref.read(_studentFilterProvider);
+                ref.read(_studentFilterProvider.notifier).state = v == null
+                    ? f.copyWith(clearBranchId: true, page: 1)
+                    : f.copyWith(branchId: v, page: 1);
+              },
             ),
-            // Class
-            _DropdownFilter(
-              hint:  'All Classes',
+          ),
+          const SizedBox(width: 8),
+          // Class
+          SizedBox(
+            width: 140,
+            height: 36,
+            child: DropdownButtonFormField<String>(
               value: filter.className,
-              items: classNames,
+              isDense: true,
+              hint: Text('All Classes', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500)),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.primary)),
+                filled: true, fillColor: AppTheme.grey50,
+              ),
+              items: [
+                DropdownMenuItem<String>(value: null, child: Text('All Classes', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500))),
+                ...classNames.map((s) => DropdownMenuItem(value: s, child: Text(s, style: GoogleFonts.poppins(fontSize: 12)))),
+              ],
               onChanged: (v) {
                 final f = ref.read(_studentFilterProvider);
                 ref.read(_studentFilterProvider.notifier).state = v == null
@@ -326,11 +336,28 @@ class _FilterToolbar extends ConsumerWidget {
                     : f.copyWith(className: v, clearSection: true, page: 1);
               },
             ),
-            // Section
-            _DropdownFilter(
-              hint:  'All Sections',
+          ),
+          const SizedBox(width: 8),
+          // Section
+          SizedBox(
+            width: 130,
+            height: 36,
+            child: DropdownButtonFormField<String>(
               value: filter.section,
-              items: sectionList,
+              isDense: true,
+              hint: Text('All Sections', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500)),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.primary)),
+                filled: true, fillColor: AppTheme.grey50,
+              ),
+              items: [
+                DropdownMenuItem<String>(value: null, child: Text('All Sections', style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500))),
+                ...sectionList.map((s) => DropdownMenuItem(value: s, child: Text(s, style: GoogleFonts.poppins(fontSize: 12)))),
+              ],
               onChanged: (v) {
                 final f = ref.read(_studentFilterProvider);
                 ref.read(_studentFilterProvider.notifier).state = v == null
@@ -338,29 +365,33 @@ class _FilterToolbar extends ConsumerWidget {
                     : f.copyWith(section: v, page: 1);
               },
             ),
-            // Search
-            SizedBox(
-              width: 240,
+          ),
+          const SizedBox(width: 8),
+          // Search
+          Expanded(
+            child: SizedBox(
+              height: 36,
               child: TextField(
                 controller: searchCtrl,
+                style: GoogleFonts.poppins(fontSize: 13),
                 decoration: InputDecoration(
-                  hintText:    'Search name, ID...',
-                  prefixIcon:  const Icon(Icons.search, size: 18),
-                  suffixIcon:  searchCtrl.text.isNotEmpty
+                  hintText:   'Search name, ID...',
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: searchCtrl.text.isNotEmpty
                       ? IconButton(
+                          icon: const Icon(Icons.close, size: 16),
                           onPressed: () {
                             searchCtrl.clear();
-                            ref
-                                .read(_studentFilterProvider.notifier)
-                                .state = ref
-                                .read(_studentFilterProvider)
-                                .copyWith(search: '');
+                            ref.read(_studentFilterProvider.notifier).state =
+                                ref.read(_studentFilterProvider).copyWith(search: '');
                           },
-                          icon: const Icon(Icons.close, size: 16))
+                        )
                       : null,
-                  isDense:     true,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.grey300)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.primary)),
+                  filled: true, fillColor: AppTheme.grey50,
                 ),
                 onChanged: (v) {
                   ref.read(_studentFilterProvider.notifier).state =
@@ -368,51 +399,96 @@ class _FilterToolbar extends ConsumerWidget {
                 },
               ),
             ),
-            // Bulk upload
-            OutlinedButton.icon(
-              onPressed: () => context.push('/students/bulk-upload'),
-              icon:  const Icon(Icons.upload_file, size: 16),
-              label: const Text('Bulk Upload'),
-            ),
-          ],
+          ),
+          const SizedBox(width: 8),
+          // Bulk upload
+          _ToolBtn(
+            icon:  Icons.upload_file_rounded,
+            label: 'Bulk Upload',
+            onTap: () => context.push('/students/bulk-upload'),
+          ),
+          const SizedBox(width: 6),
+          // Bulk photos
+          _ToolBtn(
+            icon:  Icons.photo_library_rounded,
+            label: 'Bulk Photos',
+            onTap: () => context.push('/students/bulk-photos'),
+          ),
+        ]),
+        // Status chips row
+        const SizedBox(height: 6),
+        _StatusChips(filter: filter),
+      ]),
+    );
+  }
+}
+
+// ── Tool Button ───────────────────────────────────────────────
+class _ToolBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+  final Color? color;
+  const _ToolBtn({required this.icon, required this.label, required this.onTap, this.active = false, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? (active ? AppTheme.primary : AppTheme.grey700);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? c.withOpacity(0.08) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: active ? c : AppTheme.grey300),
         ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 15, color: c),
+          const SizedBox(width: 4),
+          Text(label, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: c)),
+        ]),
       ),
     );
   }
 }
 
-class _DropdownFilter extends StatelessWidget {
-  final String hint;
-  final String? value;
-  final List<String> items;
-  final ValueChanged<String?> onChanged;
-  const _DropdownFilter({
-    required this.hint,
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
+// ── Stats Bar ─────────────────────────────────────────────────
+class _StatsBar extends StatelessWidget {
+  final int total, selected;
+  const _StatsBar({required this.total, required this.selected});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 160,
-      child: DropdownButtonFormField<String>(
-        value:       value,
-        hint:        Text(hint, style: GoogleFonts.poppins(fontSize: 12)),
-        isDense:     true,
-        decoration:  const InputDecoration(
-          isDense: true,
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        ),
-        items: [
-          DropdownMenuItem<String>(value: null, child: Text(hint, style: GoogleFonts.poppins(fontSize: 12, color: AppTheme.grey500))),
-          ...items.map((s) => DropdownMenuItem(value: s, child: Text(s, style: GoogleFonts.poppins(fontSize: 12)))),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      color: AppTheme.grey50,
+      child: Row(children: [
+        _Stat('Total', total, AppTheme.primary),
+        if (selected > 0) ...[
+          const SizedBox(width: 16),
+          _Stat('Selected', selected, AppTheme.accent),
         ],
-        onChanged: onChanged,
-      ),
+      ]),
     );
   }
+}
+
+class _Stat extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+  const _Stat(this.label, this.count, this.color);
+
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+    const SizedBox(width: 4),
+    Text('$label: ', style: GoogleFonts.poppins(fontSize: 11, color: AppTheme.grey500)),
+    Text('$count', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.grey800)),
+  ]);
 }
 
 // ── Status Chips ──────────────────────────────────────────────
@@ -476,7 +552,7 @@ class _BulkActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: AppTheme.primary.withOpacity(0.06),

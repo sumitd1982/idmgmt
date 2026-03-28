@@ -547,6 +547,13 @@ class _Toolbar extends ConsumerWidget {
             label: 'Bulk Upload',
             onTap: () => context.push('/employees/bulk-upload'),
           ),
+          const SizedBox(width: 6),
+          // Bulk photos
+          _ToolBtn(
+            icon: Icons.photo_library_rounded,
+            label: 'Bulk Photos',
+            onTap: () => context.push('/employees/bulk-photos'),
+          ),
         ]),
         // Toggles row
         const SizedBox(height: 6),

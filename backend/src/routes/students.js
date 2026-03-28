@@ -380,8 +380,8 @@ router.post('/', authenticate, async (req, res, next) => {
             school_house_name,
             effective_start_date, is_current, is_active, created_by, change_reason)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,TRUE,?,?)`,
-        [id, effectiveSchoolId, effectiveBranchId, student_id, roll_number,
-         class_name, section, first_name, last_name, middle_name, date_of_birth, gender,
+        [id, effectiveSchoolId, effectiveBranchId, student_id || null, roll_number || null,
+         class_name, section, first_name, last_name || null, middle_name, date_of_birth || null, gender,
          blood_group || null, nationality || 'Indian', religion || null,
          category || 'General', aadhaar_no || null, admission_no || null,
          photo_url || null,
@@ -520,70 +520,112 @@ router.put('/:id', authenticate, async (req, res, next) => {
       return res.status(422).json({ success: false, message: 'Validation failed', errors: valErrors });
     }
 
-    const newId = uuid();
+    // Same-day amendment: if effStart matches the current version's effective_start_date,
+    // update in place instead of creating a new SCD2 row (avoids uq_student_version collision).
+    // Normalise to YYYY-MM-DD regardless of whether MySQL2 returns a Date or string
+    const currentEffStart = current.effective_start_date
+      ? String(current.effective_start_date).slice(0, 10)
+      : null;
+    const isSameDayAmend = currentEffStart === effStart;
+
+    const newId = isSameDayAmend ? current.id : uuid();
 
     await transaction(async (conn) => {
-      // Snapshot existing guardians into guardian_history before changing
-      const existingGuardians = await conn.query(
-        'SELECT * FROM guardians WHERE student_id = ?', [current.id]
-      );
-      const guardianRows = Array.isArray(existingGuardians) && Array.isArray(existingGuardians[0])
-        ? existingGuardians[0] : existingGuardians;
-      for (const eg of guardianRows) {
+      if (isSameDayAmend) {
+        // Amend today's version in place — no new row, no history snapshot
         await conn.query(
-          `INSERT INTO guardian_history
-             (guardian_id, student_id, guardian_type, first_name, last_name, relation,
-              email, phone, whatsapp_no, alt_phone, occupation, organization, annual_income,
-              aadhaar_no, same_as_student, address_line1, address_line2, city, state, country,
-              zip_code, is_primary, changed_by, change_note)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [eg.id, eg.student_id, eg.guardian_type, eg.first_name, eg.last_name, eg.relation,
-           eg.email, eg.phone, eg.whatsapp_no, eg.alt_phone, eg.occupation, eg.organization,
-           eg.annual_income, eg.aadhaar_no, eg.same_as_student,
-           eg.address_line1, eg.address_line2, eg.city, eg.state, eg.country, eg.zip_code,
-           eg.is_primary, userId, changeReason]
+          `UPDATE students SET
+             roll_number=?, class_name=?, section=?,
+             first_name=?, last_name=?, middle_name=?,
+             date_of_birth=?, gender=?,
+             blood_group=?, nationality=?, religion=?, category=?,
+             aadhaar_no=?, admission_no=?, photo_url=?,
+             address_line1=?, address_line2=?, city=?, state=?, country=?, zip_code=?,
+             bus_route=?, bus_stop=?, bus_number=?,
+             private_cab_flag=?, parents_personally_pick=?,
+             private_cab_regn_no=?, private_cab_model=?, private_cab_driver_name=?,
+             private_cab_driver_license_no=?, private_cab_license_expiry_dt=?,
+             school_house_name=?,
+             updated_by=?, change_reason=?
+           WHERE id=?`,
+          [newData.roll_number, newData.class_name, newData.section,
+           newData.first_name, newData.last_name, newData.middle_name,
+           newData.date_of_birth, newData.gender,
+           newData.blood_group, newData.nationality, newData.religion,
+           newData.category, newData.aadhaar_no, newData.admission_no,
+           newData.photo_url,
+           newData.address_line1, newData.address_line2, newData.city,
+           newData.state, newData.country, newData.zip_code,
+           newData.bus_route, newData.bus_stop, newData.bus_number,
+           newData.private_cab_flag ? 1 : 0, newData.parents_personally_pick ? 1 : 0,
+           newData.private_cab_regn_no, newData.private_cab_model, newData.private_cab_driver_name,
+           newData.private_cab_driver_license_no, newData.private_cab_license_expiry_dt,
+           newData.school_house_name,
+           userId, changeReason, current.id]
+        );
+      } else {
+        // Standard SCD2: snapshot guardian history, close current, insert new version
+        const existingGuardians = await conn.query(
+          'SELECT * FROM guardians WHERE student_id = ?', [current.id]
+        );
+        const guardianRows = Array.isArray(existingGuardians) && Array.isArray(existingGuardians[0])
+          ? existingGuardians[0] : existingGuardians;
+        for (const eg of guardianRows) {
+          await conn.query(
+            `INSERT INTO guardian_history
+               (guardian_id, student_id, guardian_type, first_name, last_name, relation,
+                email, phone, whatsapp_no, alt_phone, occupation, organization, annual_income,
+                aadhaar_no, same_as_student, address_line1, address_line2, city, state, country,
+                zip_code, is_primary, changed_by, change_note)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [eg.id, eg.student_id, eg.guardian_type, eg.first_name, eg.last_name, eg.relation,
+             eg.email, eg.phone, eg.whatsapp_no, eg.alt_phone, eg.occupation, eg.organization,
+             eg.annual_income, eg.aadhaar_no, eg.same_as_student,
+             eg.address_line1, eg.address_line2, eg.city, eg.state, eg.country, eg.zip_code,
+             eg.is_primary, userId, changeReason]
+          );
+        }
+
+        // Close current version
+        await conn.query(
+          `UPDATE students SET is_current = FALSE, effective_end_date = NOW(), updated_by = ?
+           WHERE id = ?`,
+          [userId, current.id]
+        );
+
+        // Insert new SCD version
+        await conn.query(
+          `INSERT INTO students
+             (id, school_id, branch_id, student_id, roll_number, class_name, section,
+              first_name, last_name, middle_name, date_of_birth, gender,
+              blood_group, nationality, religion, category, aadhaar_no, admission_no,
+              photo_url, address_line1, address_line2, city, state, country, zip_code,
+              bus_route, bus_stop, bus_number,
+              private_cab_flag, parents_personally_pick,
+              private_cab_regn_no, private_cab_model, private_cab_driver_name,
+              private_cab_driver_license_no, private_cab_license_expiry_dt,
+              school_house_name,
+              review_status, status_color, bulk_upload_batch,
+              effective_start_date, is_current, is_active, created_by, change_reason)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?,?)`,
+          [newId, current.school_id, current.branch_id, current.student_id,
+           newData.roll_number, newData.class_name, newData.section,
+           newData.first_name, newData.last_name, newData.middle_name,
+           newData.date_of_birth, newData.gender,
+           newData.blood_group, newData.nationality, newData.religion,
+           newData.category, newData.aadhaar_no, newData.admission_no,
+           newData.photo_url,
+           newData.address_line1, newData.address_line2, newData.city,
+           newData.state, newData.country, newData.zip_code,
+           newData.bus_route, newData.bus_stop, newData.bus_number,
+           newData.private_cab_flag ? 1 : 0, newData.parents_personally_pick ? 1 : 0,
+           newData.private_cab_regn_no, newData.private_cab_model, newData.private_cab_driver_name,
+           newData.private_cab_driver_license_no, newData.private_cab_license_expiry_dt,
+           newData.school_house_name,
+           current.review_status, current.status_color, current.bulk_upload_batch,
+           effStart, newData.is_active ?? true, userId, changeReason]
         );
       }
-
-      // Close current version
-      await conn.query(
-        `UPDATE students SET is_current = FALSE, effective_end_date = NOW(), updated_by = ?
-         WHERE id = ?`,
-        [userId, current.id]
-      );
-
-      // Insert new SCD version
-      await conn.query(
-        `INSERT INTO students
-           (id, school_id, branch_id, student_id, roll_number, class_name, section,
-            first_name, last_name, middle_name, date_of_birth, gender,
-            blood_group, nationality, religion, category, aadhaar_no, admission_no,
-            photo_url, address_line1, address_line2, city, state, country, zip_code,
-            bus_route, bus_stop, bus_number,
-            private_cab_flag, parents_personally_pick,
-            private_cab_regn_no, private_cab_model, private_cab_driver_name,
-            private_cab_driver_license_no, private_cab_license_expiry_dt,
-            school_house_name,
-            review_status, status_color, bulk_upload_batch,
-            effective_start_date, is_current, is_active, created_by, change_reason)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,TRUE,?,?,?)`,
-        [newId, current.school_id, current.branch_id, current.student_id,
-         newData.roll_number, newData.class_name, newData.section,
-         newData.first_name, newData.last_name, newData.middle_name,
-         newData.date_of_birth, newData.gender,
-         newData.blood_group, newData.nationality, newData.religion,
-         newData.category, newData.aadhaar_no, newData.admission_no,
-         newData.photo_url,
-         newData.address_line1, newData.address_line2, newData.city,
-         newData.state, newData.country, newData.zip_code,
-         newData.bus_route, newData.bus_stop, newData.bus_number,
-         newData.private_cab_flag ? 1 : 0, newData.parents_personally_pick ? 1 : 0,
-         newData.private_cab_regn_no, newData.private_cab_model, newData.private_cab_driver_name,
-         newData.private_cab_driver_license_no, newData.private_cab_license_expiry_dt,
-         newData.school_house_name,
-         current.review_status, current.status_color, current.bulk_upload_batch,
-         effStart, newData.is_active ?? true, userId, changeReason]
-      );
 
       // Handle guardians
       if (Array.isArray(req.body.guardians)) {
@@ -1188,13 +1230,18 @@ router.post('/bulk-upload/:batchId/confirm',
           const reason = overrideReason || stg.change_reason || null;
 
           await transaction(async (conn) => {
-            const [existing] = await conn.query(
-              'SELECT id FROM students WHERE school_id = ? AND student_id = ? AND is_current = TRUE LIMIT 1',
+            const [[existing]] = await conn.query(
+              'SELECT id, effective_start_date FROM students WHERE school_id = ? AND student_id = ? AND is_current = TRUE LIMIT 1',
               [stg.school_id, stg.student_id]
             );
 
-            if (existing) {
-              // Snapshot guardians before closing
+            const existingEffStart = existing?.effective_start_date
+              ? String(existing.effective_start_date).slice(0, 10)
+              : null;
+            const isSameDayAmend = existing && existingEffStart === effStart;
+
+            if (existing && !isSameDayAmend) {
+              // Standard SCD2: snapshot guardians then close current version
               const prevGuardians = await conn.query(
                 'SELECT * FROM guardians WHERE student_id = ?', [existing.id]
               );
@@ -1215,12 +1262,60 @@ router.post('/bulk-upload/:batchId/confirm',
                    eg.is_primary, userId, reason || 'Bulk upload']
                 );
               }
-
               await conn.query(
                 'UPDATE students SET is_current = FALSE, effective_end_date = ?, updated_by = ? WHERE id = ?',
                 [effStart, userId, existing.id]
               );
               replaced++;
+            } else if (isSameDayAmend) {
+              // Same-day amend: update in place, no new SCD2 row
+              await conn.query(
+                `UPDATE students SET
+                   roll_number=?, class_name=?, section=?,
+                   first_name=?, last_name=?, middle_name=?,
+                   date_of_birth=?, gender=?,
+                   blood_group=?, nationality=?, religion=?, category=?,
+                   aadhaar_no=?, photo_url=?,
+                   address_line1=?, address_line2=?, city=?, state=?, country=?, zip_code=?,
+                   bus_route=?, bus_stop=?, bus_number=?,
+                   school_house_name=?,
+                   updated_by=?, change_reason=?
+                 WHERE id=?`,
+                [stg.roll_number, stg.class_name, stg.section,
+                 stg.first_name, stg.last_name, stg.middle_name,
+                 stg.date_of_birth, stg.gender,
+                 stg.blood_group || null, stg.nationality || 'Indian',
+                 stg.religion || null, stg.category || 'General',
+                 stg.aadhaar_no || null, stg.photo_url || null,
+                 stg.address_line1 || null, stg.address_line2 || null,
+                 stg.city || null, stg.state || null, stg.country || 'India', stg.zip_code || null,
+                 stg.bus_route || null, stg.bus_stop || null, stg.bus_number || null,
+                 stg.school_house_name || null,
+                 userId, reason || 'Bulk upload', existing.id]
+              );
+              replaced++;
+              // Update guardian if provided and finish transaction early
+              if (stg.guardian_data) {
+                const guardians = typeof stg.guardian_data === 'string'
+                  ? JSON.parse(stg.guardian_data) : stg.guardian_data;
+                for (const g of (Array.isArray(guardians) ? guardians : [])) {
+                  if (g.phone || g.first_name) {
+                    await conn.query(
+                      `INSERT INTO guardians
+                         (id, student_id, guardian_type, first_name, last_name,
+                          relation, phone, whatsapp_no, email, occupation, is_primary)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                       ON DUPLICATE KEY UPDATE phone = VALUES(phone)`,
+                      [uuid(), existing.id, g.guardian_type || 'father',
+                       g.first_name || 'Guardian', g.last_name || null,
+                       g.relation || null, g.phone || null,
+                       g.whatsapp_no || null, g.email || null,
+                       g.occupation || null, g.is_primary ? 1 : 0]
+                    );
+                  }
+                }
+              }
+              return; // Skip the INSERT below
             } else {
               inserted++;
             }

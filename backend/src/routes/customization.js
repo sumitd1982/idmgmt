@@ -68,6 +68,11 @@ const DEFAULT_DASHBOARD_WIDGETS = [
 // Helper: merge global + school configs (school overrides global)
 // ─────────────────────────────────────────────────────────────
 
+function parseJsonField(value) {
+  if (value == null) return null;
+  return typeof value === 'string' ? JSON.parse(value) : value;
+}
+
 async function getMergedMenuConfig(role, schoolId) {
   // 1. Try school-specific config
   if (schoolId) {
@@ -75,14 +80,14 @@ async function getMergedMenuConfig(role, schoolId) {
       `SELECT items FROM menu_config WHERE school_id = ? AND role = ? LIMIT 1`,
       [schoolId, role]
     );
-    if (rows.length) return JSON.parse(rows[0].items);
+    if (rows.length) return parseJsonField(rows[0].items);
   }
   // 2. Try global config
   const globalRows = await query(
     `SELECT items FROM menu_config WHERE school_id IS NULL AND role = ? LIMIT 1`,
     [role]
   );
-  if (globalRows.length) return JSON.parse(globalRows[0].items);
+  if (globalRows.length) return parseJsonField(globalRows[0].items);
   // 3. Hardcoded fallback
   return buildDefaultMenuForRole(role);
 }
@@ -93,13 +98,13 @@ async function getMergedDashboardConfig(role, schoolId) {
       `SELECT widgets FROM dashboard_widget_config WHERE school_id = ? AND role = ? LIMIT 1`,
       [schoolId, role]
     );
-    if (rows.length) return JSON.parse(rows[0].widgets);
+    if (rows.length) return parseJsonField(rows[0].widgets);
   }
   const globalRows = await query(
     `SELECT widgets FROM dashboard_widget_config WHERE school_id IS NULL AND role = ? LIMIT 1`,
     [role]
   );
-  if (globalRows.length) return JSON.parse(globalRows[0].widgets);
+  if (globalRows.length) return parseJsonField(globalRows[0].widgets);
   return DEFAULT_DASHBOARD_WIDGETS;
 }
 

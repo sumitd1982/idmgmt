@@ -84,15 +84,18 @@ router.post('/',
   authenticate,
   requireRole('super_admin', 'viewer', 'onboarding'),
   [
-    body('name').notEmpty().trim().isLength({ max: 255 }),
-    body('code').notEmpty().trim().toUpperCase().isLength({ max: 20 }),
-    body('address_line1').notEmpty().trim(),
-    body('city').notEmpty().trim(),
-    body('state').notEmpty().trim(),
-    body('country').notEmpty().trim(),
-    body('zip_code').notEmpty().trim(),
-    body('phone1').notEmpty().trim(),
-    body('email').notEmpty().trim().isEmail().normalizeEmail(),
+    body('name').trim().notEmpty().withMessage('School name is required').isLength({ max: 255 }).withMessage('School name must be 255 characters or fewer'),
+    body('code').trim().notEmpty().withMessage('School code is required').toUpperCase().isLength({ max: 20 }).withMessage('School code must be 20 characters or fewer'),
+    body('address_line1').trim().notEmpty().withMessage('Address line 1 is required'),
+    body('city').trim().notEmpty().withMessage('City is required'),
+    body('state').trim().notEmpty().withMessage('State is required'),
+    body('country').trim().notEmpty().withMessage('Country is required'),
+    body('zip_code').trim().notEmpty().withMessage('ZIP code is required'),
+    body('phone1').trim().notEmpty().withMessage('Primary phone is required').isLength({ max: 20 }).withMessage('Phone number must be 20 characters or fewer'),
+    body('phone2').optional({ checkFalsy: true }).trim().isLength({ max: 20 }).withMessage('Secondary phone must be 20 characters or fewer'),
+    body('whatsapp_no').optional({ checkFalsy: true }).trim().isLength({ max: 20 }).withMessage('WhatsApp number must be 20 characters or fewer'),
+    body('email').trim().notEmpty().withMessage('Email is required').isEmail().withMessage('Invalid email address').normalizeEmail(),
+    body('school_type').optional({ checkFalsy: true }).isIn(['government','private','aided','international']).withMessage("school_type must be one of: government, private, aided, international"),
   ],
   validate,
   async (req, res, next) => {
@@ -181,6 +184,20 @@ router.put('/:id',
         req.body.settings = JSON.stringify(req.body.settings);
       }
 
+      // Validate URL-length fields before hitting DB (VARCHAR 1024)
+      for (const urlField of ['logo_url', 'banner_url']) {
+        if (req.body[urlField] != null && String(req.body[urlField]).length > 1024) {
+          return res.status(422).json({ success: false, message: `${urlField} must be 1024 characters or fewer` });
+        }
+      }
+
+      // Validate phone lengths before hitting DB (VARCHAR 20)
+      for (const phoneField of ['phone1', 'phone2', 'whatsapp_no']) {
+        if (req.body[phoneField] != null && String(req.body[phoneField]).length > 20) {
+          return res.status(422).json({ success: false, message: `${phoneField} must be 20 characters or fewer` });
+        }
+      }
+
       const fields = Object.keys(req.body).filter(k => allowed.includes(k));
       if (!fields.length) return res.status(400).json({ success: false, message: 'No valid fields to update' });
 
@@ -207,7 +224,11 @@ router.put('/:id',
       }
 
       const sql = `UPDATE schools SET ${fields.map(f => `${f} = ?`).join(', ')}, updated_by = ? WHERE id = ?`;
-      await query(sql, [...fields.map(f => req.body[f]), req.user.id, req.params.id]);
+      const result = await query(sql, [...fields.map(f => req.body[f]), req.user.id, req.params.id]);
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, message: 'School not found' });
+      }
 
       const [school] = await query('SELECT * FROM schools WHERE id = ?', [req.params.id]);
       res.json({ success: true, data: school });

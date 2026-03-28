@@ -37,6 +37,7 @@ const settingsRoutes    = require('./routes/settings');
 const workflowRoutes        = require('./routes/workflow');
 const classRoutes           = require('./routes/classes');
 const customizationRoutes   = require('./routes/customization');
+const bulkPhotosRouter      = require('./routes/bulk_photos');
 
 const app    = express();
 const server = http.createServer(app);
@@ -131,6 +132,8 @@ app.use(`${base}/settings`,      apiLimiter,  settingsRoutes);
 app.use(`${base}/workflow`,        apiLimiter,  workflowRoutes);
 app.use(`${base}/classes`,         apiLimiter,  classRoutes);
 app.use(`${base}/customization`,   apiLimiter,  customizationRoutes);
+app.use(`${base}/employees/bulk-photos`, apiLimiter, bulkPhotosRouter('employees'));
+app.use(`${base}/students/bulk-photos`,  apiLimiter, bulkPhotosRouter('students'));
 
 // ─── Error Handler ───────────────────────────────────────────
 app.use((err, req, res, next) => {

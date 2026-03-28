@@ -185,6 +185,15 @@ router.post('/', authenticate, requireRole('super_admin','school_owner','princip
       return res.status(422).json({ success: false, message: 'org_role_id or role_level is required' });
     }
 
+    // Enforce uniqueness of employee_id within school (DB constraint may be absent)
+    if (employee_id) {
+      const [dup] = await query(
+        'SELECT id FROM employees WHERE school_id = ? AND employee_id = ? AND is_active = TRUE LIMIT 1',
+        [effectiveSchoolId, employee_id]
+      );
+      if (dup) return res.status(409).json({ success: false, message: `Employee ID '${employee_id}' already exists in this school` });
+    }
+
     const permsJson = permissions ? JSON.stringify(permissions) : null;
     await query(
       `INSERT INTO employees (id,school_id,branch_id,employee_id,org_role_id,reports_to_emp_id,
@@ -194,7 +203,7 @@ router.post('/', authenticate, requireRole('super_admin','school_owner','princip
          qualification,specialization,experience_years,
          assigned_classes,subject_ids,photo_url,
          can_approve,can_upload_bulk,permissions,is_temp)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [id,effectiveSchoolId,effectiveBranchId,employee_id,effectiveOrgRoleId,reports_to_emp_id,
        first_name,last_name,display_name||null,email,phone,whatsapp_no,alt_phone,
        date_of_joining,gender,date_of_birth,
@@ -532,7 +541,8 @@ router.post('/validate-bulk', authenticate, upload.single('file'), async (req, r
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
 
-    const effectiveSchoolId = req.employee?.school_id || req.user.school_id;
+    const effectiveSchoolId = req.employee?.school_id || req.user.school_id
+      || req.query.school_id || req.body.school_id;
     if (!effectiveSchoolId) {
       fs.unlink(req.file.path, () => {});
       return res.status(422).json({ success: false, message: 'school_id context required' });
@@ -861,12 +871,13 @@ router.get('/org-tree/:school_id', authenticate, async (req, res, next) => {
 // GET /employees/bulk-history  → upload history for school
 router.get('/bulk-history', authenticate, async (req, res, next) => {
   try {
-    const effectiveSchoolId = req.employee?.school_id || req.user.school_id;
+    const effectiveSchoolId = req.employee?.school_id || req.user.school_id
+      || req.query.school_id;
     if (!effectiveSchoolId) return res.json({ success: true, data: [] });
     const batches = await query(
       `SELECT bb.id, bb.filename, bb.total_rows, bb.success_rows, bb.failed_rows,
               bb.status, bb.created_at,
-              CONCAT(u.first_name, ' ', u.last_name) AS uploaded_by_name,
+              u.full_name AS uploaded_by_name,
               u.email AS uploaded_by_email
        FROM bulk_batches bb
        JOIN users u ON u.id = bb.uploaded_by

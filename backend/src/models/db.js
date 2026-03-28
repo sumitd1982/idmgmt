@@ -17,6 +17,7 @@ const initDb = async () => {
     connectionLimit:    20,
     queueLimit:         0,
     timezone:           '+05:30',
+    dateStrings:        true,
     charset:            'utf8mb4',
     multipleStatements: false,
     namedPlaceholders:  true,

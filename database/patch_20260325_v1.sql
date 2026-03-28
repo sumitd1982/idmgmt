@@ -8,5 +8,12 @@
 --   Uniqueness of the active record is enforced at app level.
 -- ============================================================
 
-ALTER TABLE employees DROP INDEX IF EXISTS uq_employee_id;
-ALTER TABLE employees ADD INDEX IF NOT EXISTS idx_emp_id_lookup (school_id, employee_id);
+SET @idx_exists = (SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'employees' AND INDEX_NAME = 'uq_employee_id');
+SET @sql = IF(@idx_exists > 0, 'ALTER TABLE employees DROP INDEX uq_employee_id', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx2_exists = (SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'employees' AND INDEX_NAME = 'idx_emp_id_lookup');
+SET @sql2 = IF(@idx2_exists = 0, 'ALTER TABLE employees ADD INDEX idx_emp_id_lookup (school_id, employee_id)', 'SELECT 1');
+PREPARE stmt2 FROM @sql2; EXECUTE stmt2; DEALLOCATE PREPARE stmt2;

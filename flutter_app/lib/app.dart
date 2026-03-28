@@ -21,9 +21,11 @@ import 'screens/employee/employee_screen.dart';
 import 'screens/employee/employee_form_screen.dart';
 import 'screens/employee/employee_bulk_upload_history_screen.dart';
 import 'screens/employee/employee_bulk_upload_screen.dart';
+import 'screens/employee/employee_bulk_photos_screen.dart';
 import 'screens/student/student_screen.dart';
 import 'screens/student/student_form_screen.dart';
 import 'screens/student/student_bulk_upload_screen.dart';
+import 'screens/student/student_bulk_photos_screen.dart';
 import 'screens/id_card/id_card_designer.dart';
 import 'screens/id_card/id_template_list_screen.dart';
 import 'screens/id_card/id_template_designer_screen.dart';
@@ -81,7 +83,7 @@ class _RouterNotifier extends ChangeNotifier {
 
     if (!isLoggedIn) {
       if (isAuthPath || isLanding) return null;
-      return '/login/staff'; // Redirect to a valid sub-route
+      return '/'; // Redirect to a valid sub-route
     }
 
     if (isAuthPath || isLanding) {
@@ -167,6 +169,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/employees',            builder: (_, __) => const EmployeeScreen()),
           GoRoute(path: '/employees/bulk-upload', builder: (_, __) => const EmployeeBulkUploadScreen()),
           GoRoute(path: '/employees/bulk-upload/history', builder: (_, __) => const EmployeeBulkUploadHistoryScreen()),
+          GoRoute(path: '/employees/bulk-photos', builder: (_, __) => const EmployeeBulkPhotosScreen()),
           GoRoute(
             path: '/employees/new',
             builder: (_, s) => EmployeeFormScreen(
@@ -182,6 +185,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/students',                       builder: (_, __) => const StudentScreen()),
           GoRoute(path: '/students/bulk-upload',           builder: (_, __) => const StudentBulkUploadScreen()),
           GoRoute(path: '/students/bulk-upload/history',   builder: (_, __) => const StudentBulkUploadHistoryScreen()),
+          GoRoute(path: '/students/bulk-photos',           builder: (_, __) => const StudentBulkPhotosScreen()),
           GoRoute(path: '/students/new',                   builder: (_, __) => const StudentFormScreen()),
           GoRoute(
             path: '/students/:id',
